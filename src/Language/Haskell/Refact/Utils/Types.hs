@@ -32,7 +32,7 @@ import qualified Data.Map as Map
 -- was modified, and the updated AST
 type ApplyRefacResult = ((FilePath, RefacResult), (Anns,GHC.ParsedSource))
 
-data RefacResult = RefacModified | RefacUnmodifed
+data RefacResult = RefacModified | RefacUnmodified
                  deriving (Show,Ord,Eq)
 
 

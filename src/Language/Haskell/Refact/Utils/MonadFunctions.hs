@@ -385,7 +385,7 @@ initRefactModule tm
                  , rsTokenCache = initTokenCacheLayout (relativiseApiAnns
                                     (GHC.pm_parsed_source $ GHC.tm_parsed_module tm)
                                     (GHC.pm_annotations $ GHC.tm_parsed_module tm))
-                 , rsStreamModified = RefacUnmodifed
+                 , rsStreamModified = RefacUnmodified
                  })
 
 

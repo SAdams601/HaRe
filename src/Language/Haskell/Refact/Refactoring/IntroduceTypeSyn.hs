@@ -18,20 +18,20 @@ import StringBuffer
 import Bag
 import SrcLoc
 import Outputable
-
+import Language.Haskell.GhcMod
 introduceTypeSyn :: RefactSettings -> Cradle -> FilePath -> SimpPos -> String -> String -> IO [FilePath]
 introduceTypeSyn settings cradle fileName (row,col) newName typeRep=
-  runRefacSession settings cradle (comp fileName (row,col) newName typeRep)
+  runRefacSession settings defaultOptions [(Left fileName)] (comp fileName (row,col) newName typeRep)
 
 comp ::FilePath -> SimpPos -> String -> String -> RefactGhc [ApplyRefacResult]
 comp fileName (row,col) newName typeRep = do
   getModuleGhc fileName
   renamed <- getRefactRenamed
   m <- getModule
-  (refactoredMod@((_fp,ismod),(_,_toks',renamed')),_) <- applyRefac (addSyn (row,col) newName typeRep fileName) RSAlreadyLoaded
+  ((refactoredMod@((_fp,ismod),(anns',parsed')),_))<- applyRefac (addSyn (row,col) newName typeRep fileName) RSAlreadyLoaded
   case ismod of
-    False -> error "Introduce type synonym failed"
-    True -> return ()
+    RefacUnmodified -> error "Introduce type synonym failed"
+    RefacModified -> return ()
   return [refactoredMod]
   {-let (Just (modName,_)) = getModuleName parsed
       maybePn = locToType (row, col) renamed
@@ -52,7 +52,9 @@ addSyn (row, col) newName typeRep fileName = do
   renamed <- getRefactRenamed
   parsed <- getRefactParsed
   let maybePn = locToName (row,col) renamed
-  case maybePn of
+  error "Update to work with exactprint"
+  return ()
+  {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
@@ -180,3 +182,4 @@ unwrapSrcLoc loc =
 
 wrapSrcLoc :: RealSrcLoc -> SrcLoc
 wrapSrcLoc rl = RealSrcLoc rl
+-}

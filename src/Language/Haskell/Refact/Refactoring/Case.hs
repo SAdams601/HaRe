@@ -30,7 +30,8 @@ ifToCase settings opts fileName beginPos endPos =
 
 comp :: FilePath -> SimpPos -> SimpPos -> RefactGhc [ApplyRefacResult]
 comp fileName beginPos endPos = do
-       getModuleGhc fileName
+  error "Update this to work with exactprint"
+  {-       getModuleGhc fileName
        parsed <- getRefactParsed
        oldAnns <- getRefactAnns
        logm $ "Case.comp:parsed=" ++ (showAnnData oldAnns 0 parsed) -- ++AZ++
@@ -178,6 +179,6 @@ ifToCaseTransform x = return x
 
 
 -- EOF
-
+-}
 
 

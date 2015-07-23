@@ -126,13 +126,10 @@ main = flip catches handlers $ do
       "rename" -> runFunc cradle $ rename opt cradle cmdArg1 cmdArg2 (parseSimpPos cmdArg3 cmdArg4)
 -}
       -- roundtrip wants FilePath
-      "roundtrip" -> runFunc cradle $ roundTrip opt defaultOptions cmdArg1
 
-<<<<<<< Updated upstream
-=======
-      "deletedef" -> runFunc cradle $ deleteDef opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
-     
->>>>>>> Stashed changes
+      "typesyn" -> runFunc cradle $ introduceTypeSyn opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3) cmdArg4 cmdArg5
+      
+      "roundtrip" -> runFunc cradle $ roundTrip opt defaultOptions cmdArg1
       "show" -> putStrLn  (show (opt,cradle))
 
       cmd      -> throw (NoSuchCommand cmd)

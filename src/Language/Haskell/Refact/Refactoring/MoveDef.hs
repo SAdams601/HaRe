@@ -87,7 +87,8 @@ liftToTopLevel settings opts fileName (row,col) =
 compLiftToTopLevel :: FilePath -> SimpPos
      -> RefactGhc [ApplyRefacResult]
 compLiftToTopLevel fileName (row,col) = do
-      getModuleGhc fileName
+  error "Update this to work with exactprint"
+  {-getModuleGhc fileName
       renamed <- getRefactRenamed
       parsed  <- getRefactParsed
 
@@ -98,7 +99,7 @@ compLiftToTopLevel fileName (row,col) = do
             liftToTopLevel' modName pn
         _       ->  error "\nInvalid cursor position!\n"
 
-
+-}
 -- ---------------------------------------------------------------------
 
 -- | Move a definition one level up from where it is now
@@ -110,7 +111,8 @@ liftOneLevel settings opts fileName (row,col) =
 compLiftOneLevel :: FilePath -> SimpPos
      -> RefactGhc [ApplyRefacResult]
 compLiftOneLevel fileName (row,col) = do
-      getModuleGhc fileName
+  error "Update this to work with exactprint"
+  {-  getModuleGhc fileName
       renamed <- getRefactRenamed
       parsed  <- getRefactParsed
 
@@ -133,7 +135,7 @@ compLiftOneLevel fileName (row,col) = do
 
 
 -- ---------------------------------------------------------------------
-
+-}
 -- | Move a definition one level down
 demote :: RefactSettings -> Options -> FilePath -> SimpPos -> IO [FilePath]
 demote settings opts fileName (row,col) =
@@ -142,7 +144,8 @@ demote settings opts fileName (row,col) =
 compDemote ::FilePath -> SimpPos
          -> RefactGhc [ApplyRefacResult]
 compDemote fileName (row,col) = do
-      getModuleGhc fileName
+  error "Update this to work with exactprint"
+{-  getModuleGhc fileName
       renamed <- getRefactRenamed
       parsed  <- getRefactParsed
 
@@ -1825,3 +1828,4 @@ divideDecls ds (GHC.L _ pnt) = do
   return $ if (not $ emptyList after)
          then (before, [ghead "divideDecls" after], tail after)
          else (ds,[],[])
+-}
