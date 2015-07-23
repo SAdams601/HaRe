@@ -19,6 +19,7 @@ module Language.Haskell.Refact.HaRe
  , swapArgs
  -}
  , roundTrip
+ , introduceTypeSyn
  )
 where
 
@@ -30,5 +31,5 @@ import Language.Haskell.Refact.Refactoring.Case
 import Language.Haskell.Refact.Refactoring.RoundTrip
 import Language.Haskell.Refact.Utils.Monad
 import Language.Haskell.Refact.Utils.Types
-
-
+import Language.Haskell.Refact.Refactoring.IntroduceTypeSyn
+import Language.Haskell.Refact.Utils.Monad

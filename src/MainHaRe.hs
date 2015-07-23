@@ -36,6 +36,7 @@ usage =    "ghc-hare version " ++ showVersion version ++ "\n"
         ++ "\t ghc-hare liftOneLevel"   ++ ghcOptHelp ++ "filename line col\n"
         ++ "\t ghc-hare liftToTopLevel" ++ ghcOptHelp ++ "filename line col\n"
         ++ "\t ghc-hare rename"         ++ ghcOptHelp ++ "filename newname line col\n"
+        ++ "\t ghc-hare typesyn"        ++ ghcOptHelp ++ "filename line col typename type\n"
         ++ "\t ghc-hare help\n"
 
 ----------------------------------------------------------------
@@ -127,6 +128,11 @@ main = flip catches handlers $ do
       -- roundtrip wants FilePath
       "roundtrip" -> runFunc cradle $ roundTrip opt defaultOptions cmdArg1
 
+<<<<<<< Updated upstream
+=======
+      "deletedef" -> runFunc cradle $ deleteDef opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
+     
+>>>>>>> Stashed changes
       "show" -> putStrLn  (show (opt,cradle))
 
       cmd      -> throw (NoSuchCommand cmd)
