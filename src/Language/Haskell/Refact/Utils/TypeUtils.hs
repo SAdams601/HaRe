@@ -50,6 +50,7 @@ module Language.Haskell.Refact.Utils.TypeUtils
     ,usedWithoutQualR,isUsedInRhs
 
     -- ** Getting
+    ,findNameInRdr
     ,findPNT,findPN,findAllNameOccurences
     ,findPNs, findEntity, findEntity'
     ,findIdForName
@@ -93,8 +94,9 @@ module Language.Haskell.Refact.Utils.TypeUtils
 
 
     -- ** Identifiers, expressions, patterns and declarations
-    ,ghcToPN,lghcToPN, expToName
+    ,ghcToPN,lghcToPN, expToName, expToNameRdr
     ,nameToString
+    ,patToNameRdr
     {- ,expToPNT, expToPN, nameToExp,pNtoExp -},patToPNT {- , patToPN --, nameToPat -},pNtoPat
 
     -- ** Others
@@ -141,8 +143,8 @@ import Language.Haskell.Refact.Utils.Types
 import Language.Haskell.Refact.Utils.Variables
 
 import Language.Haskell.GHC.ExactPrint.Transform
-import Language.Haskell.GHC.ExactPrint.Internal.Types
--- import Language.Haskell.GHC.ExactPrint.Utils hiding (ghead,gtail,gfromJust)
+import Language.Haskell.GHC.ExactPrint.Types
+import Language.Haskell.GHC.ExactPrint.Utils
 
 
 -- Modules from GHC
@@ -918,10 +920,10 @@ addDecl parent pn (decl, msig, mDeclAnns) topLevel = do
          ans1 <- getRefactAnns
          let
              ans3 = case maybeSig of
-               Nothing -> setPrecedingLines ans1 newDecl n c
-               Just s  -> setPrecedingLines ans2 newDecl 1 0
+               Nothing -> setPrecedingLines newDecl n c ans1
+               Just s  -> setPrecedingLines newDecl 1 0 ans2
                  where
-                   ans2 = setPrecedingLines ans1 s n c
+                   ans2 = setPrecedingLines s n c ans1
          setRefactAnns ans3
 
   appendDecl :: (HasDecls t,GHC.Outputable t)
@@ -965,9 +967,15 @@ addDecl parent pn (decl, msig, mDeclAnns) topLevel = do
            ds -> do
              DP (r,c) <- refactRunTransform (getEntryDPT (head ds))
              setDeclSpacing newDecl (listToMaybe sigs) r c
-             modifyRefactAnns (\ans -> setPrecedingLines ans (head ds) 1 0)
+             modifyRefactAnns (\ans -> setPrecedingLines (head ds) 1 0 ans)
          r <- refactReplaceDecls parent' (sigs ++ [newDecl]++decls)
          return r
+
+  wrapDecl :: GHC.LHsBind name -> GHC.LHsDecl name
+  wrapDecl (GHC.L l d) = GHC.L l (GHC.ValD d)
+
+  wrapSig :: GHC.LSig name -> GHC.LHsDecl name
+  wrapSig (GHC.L l d) = GHC.L l (GHC.SigD d)
 
 
 -- ---------------------------------------------------------------------
@@ -1476,7 +1484,7 @@ rmTypeSig pn t
                       parent' <- liftT $ replaceDecls parent (decls1++[newSig]++tail decls2)
                       return parent'
                   else do
-                      let oldSig = head $ decl2Sig sig
+                      [oldSig] <- liftT $ decl2SigT sig
                       setStateStorage (StorageSigRdr oldSig)
                       unless (null $ tail decls2) $ do
                         modifyRefactAnns (\anns -> transferEntryDP anns sig (head $ tail decls2) )
@@ -2207,6 +2215,16 @@ findAllNameOccurences  name t
 
 -- ---------------------------------------------------------------------
 
+findNameInRdr :: (SYB.Data t) => NameMap -> GHC.Name -> t -> Bool
+findNameInRdr nm pn t =
+ isJust $ SYB.something (Nothing `SYB.mkQ` worker) t
+   where
+      worker (ln :: GHC.Located GHC.RdrName)
+         | GHC.nameUnique pn == GHC.nameUnique (rdrName2NamePure nm ln) = Just True
+      worker _ = Nothing
+
+-- ---------------------------------------------------------------------
+
 -- | Return True if the identifier occurs in the given syntax phrase.
 findPNT::(SYB.Data t) => GHC.Located GHC.Name -> t -> Bool
 findPNT (GHC.L _ pn) = findPN pn
@@ -2296,11 +2314,17 @@ lghcToPN (GHC.L _ rdr) = PN rdr
 
 -- | If an expression consists of only one identifier then return this
 -- identifier in the GHC.Name format, otherwise return the default Name
-expToName:: GHC.Located (GHC.HsExpr GHC.Name) -> GHC.Name
+expToName:: GHC.LHsExpr GHC.Name -> GHC.Name -- TODO: Use a Maybe, rather than defaultName
 expToName (GHC.L _ (GHC.HsVar pnt)) = pnt
 expToName (GHC.L _ (GHC.HsPar e))   = expToName e
 expToName _ = defaultName
 
+-- | If an expression consists of only one identifier then return this
+-- identifier in the GHC.Name format, otherwise return the default Name
+expToNameRdr :: NameMap -> GHC.LHsExpr GHC.RdrName -> Maybe GHC.Name
+expToNameRdr nm (GHC.L l (GHC.HsVar pnt)) = Just (rdrName2NamePure nm (GHC.L l pnt))
+expToNameRdr nm (GHC.L _ (GHC.HsPar e))   = expToNameRdr nm e
+expToNameRdr _ _ = Nothing
 
 nameToString :: GHC.Name -> String
 -- nameToString name = showGhc name
@@ -2308,17 +2332,19 @@ nameToString name = showGhcQual name
 
 -- | If a pattern consists of only one identifier then return this
 -- identifier, otherwise return Nothing
-patToPNT::GHC.LPat GHC.Name -> Maybe GHC.Name
+patToNameRdr :: NameMap -> GHC.LPat GHC.RdrName -> Maybe GHC.Name
+patToNameRdr nm (GHC.L l (GHC.VarPat n)) = Just (rdrName2NamePure nm (GHC.L l n))
+patToName _ _ = Nothing
+
+-- | If a pattern consists of only one identifier then return this
+-- identifier, otherwise return Nothing
+patToPNT::GHC.LPat name -> Maybe name
 patToPNT (GHC.L _ (GHC.VarPat n)) = Just n
 patToPNT _ = Nothing
 
-
 -- | Compose a pattern from a pName.
--- pNtoPat :: GHC.Name -> GHC.Pat GHC.Name
 pNtoPat :: name -> GHC.Pat name
 pNtoPat pname = GHC.VarPat pname
-    -- =let loc=srcLoc pname
-    --  in (TiDecorate.Pat (HsPId (HsVar (PNT pname Value (N (Just loc))))))
 
 -- ---------------------------------------------------------------------
 {-

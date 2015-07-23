@@ -19,6 +19,7 @@ module Language.Haskell.Refact.Utils.Variables
   , isInstanceName
   -- , hsPNs
   , isDeclaredIn
+  , FreeNames(..),DeclaredNames(..)
   , hsFreeAndDeclaredPNsOld
   , hsFreeAndDeclaredRdr
   , hsFreeAndDeclaredNameStrings
@@ -26,7 +27,8 @@ module Language.Haskell.Refact.Utils.Variables
   , hsFreeAndDeclaredGhc
   , getDeclaredTypes
   , getFvs, getFreeVars, getDeclaredVars
-  , hsVisiblePNs, hsVisibleNames
+  , hsVisiblePNs, hsVisiblePNsRdr ,hsVisibleNames
+  , hsFDsFromInsideRdr
   , hsFDsFromInside, hsFDNamesFromInside
   , hsVisibleDs, hsVisibleDsRdr
   , rdrName2Name, rdrName2NamePure
@@ -64,8 +66,9 @@ import Language.Haskell.Refact.Utils.MonadFunctions
 import Language.Haskell.Refact.Utils.TypeSyn
 import Language.Haskell.Refact.Utils.Types
 
-import Language.Haskell.GHC.ExactPrint.Internal.Types
+import Language.Haskell.GHC.ExactPrint.Types
 import Language.Haskell.GHC.ExactPrint.Transform
+import Language.Haskell.GHC.ExactPrint.Utils
 
 
 -- Modules from GHC
@@ -104,8 +107,21 @@ instance FindEntity GHC.Name where
       | n == name = Just True
     worker _ = Nothing
 
--- ---------------------------------------------------------------------
 
+-- This instance does not make sense, it will only find the specific RdrName
+-- where it was found, not any other instances of it.
+instance FindEntity (GHC.Located GHC.RdrName) where
+
+  findEntity n t = fromMaybe False res
+   where
+    res = SYB.something (Nothing `SYB.mkQ` worker) t
+
+    worker (name :: GHC.Located GHC.RdrName)
+      | sameOccurrence n name = Just True
+    worker _ = Nothing
+-- ---------------------------------------------------------------------
+{-
+-- This is not precise enough, RdrNames are ambiguous
 instance FindEntity GHC.RdrName where
 
   findEntity n t = fromMaybe False res
@@ -115,7 +131,7 @@ instance FindEntity GHC.RdrName where
     worker (name::GHC.RdrName)
       | n == name = Just True
     worker _ = Nothing
-
+-}
 -- ---------------------------------------------------------------------
 
 -- TODO: should the location be matched too in this case?
@@ -147,7 +163,7 @@ instance FindEntity (GHC.LHsExpr GHC.Name) where
 
   findEntity e t = fromMaybe False res
    where
-    res = SYB.somethingStaged SYB.Renamer Nothing (Nothing `SYB.mkQ` worker) t
+    res = SYB.something (Nothing `SYB.mkQ` worker) t
 
     worker (expr :: GHC.LHsExpr GHC.Name)
       | sameOccurrence e expr = Just True
@@ -187,10 +203,10 @@ sameOccurrence (GHC.L l1 _) (GHC.L l2 _)
 -- ---------------------------------------------------------------------
 
 -- | For free variables
-data FreeNames = FN [GHC.Name]
+data FreeNames = FN { fn :: [GHC.Name] }
 
 -- | For declared variables
-data DeclaredNames = DN [GHC.Name]
+data DeclaredNames = DN { dn :: [GHC.Name] }
 
 instance Show FreeNames where
   show (FN ls) = "FN " ++ showGhcQual ls
@@ -1540,13 +1556,23 @@ hsVisibleNames:: (FindEntity t1,HsValBinds t2 GHC.Name,GHC.Outputable t1)
 hsVisibleNames e t = do
     d <- hsVisiblePNs e t
     return ((nub . map showGhc) d)
+
 ------------------------------------------------------------------------
 
 -- | Given syntax phrases e and t, if e occurs in t, then return those
 -- variables which are declared in t and accessible to e, otherwise
 -- return [].
+hsVisiblePNsRdr :: (FindEntity e,SYB.Data t,GHC.Outputable e)
+             => NameMap -> e -> t -> RefactGhc [GHC.Name]
+hsVisiblePNsRdr nm e t = do
+  (DN dn) <- hsVisibleDsRdr nm e t
+  return dn
 
--- TODO: Consider basing the traversal on hsDecls calls.
+------------------------------------------------------------------------
+
+-- | Given syntax phrases e and t, if e occurs in t, then return those
+-- variables which are declared in t and accessible to e, otherwise
+-- return [].
 hsVisibleDsRdr :: (FindEntity e, GHC.Outputable e,SYB.Data t)
                -- ,HasDecls t)
              => NameMap -> e -> t -> RefactGhc DeclaredNames
@@ -2070,6 +2096,103 @@ hsVisibleDs e t = do
     -- -----------------------
 
     err = error $ "hsVisibleDs:no match for:" ++ (SYB.showData SYB.Renamer 0 t)
+
+-- ---------------------------------------------------------------------
+
+-- |`hsFDsFromInsideRdr` is different from `hsFreeAndDeclaredPNs` in
+-- that: given an syntax phrase t, `hsFDsFromInsideRdr` returns not only
+-- the declared variables that are visible from outside of t, but also
+-- those declared variables that are visible to the main expression
+-- inside t.
+-- NOTE: Expects to be given RenamedSource
+hsFDsFromInsideRdr:: (SYB.Data t)
+                  => NameMap ->  t -> RefactGhc (FreeNames,DeclaredNames)
+hsFDsFromInsideRdr nm t = do
+   r <- hsFDsFromInsideRdr' t
+   return r
+   where
+     hsFDsFromInsideRdr' :: (SYB.Data t) => t -> RefactGhc (FreeNames,DeclaredNames)
+     hsFDsFromInsideRdr' t1 = do
+          r1 <- applyTU (once_tdTU (failTU  `adhocTU` parsed
+                                            `adhocTU` decl
+                                            `adhocTU` match
+                                            `adhocTU` expr
+                                            `adhocTU` stmts )) t1
+          -- let (f',d') = fromMaybe ([],[]) r1
+          let (FN f',DN d') = r1
+          return (FN $ nub f', DN $ nub d')
+
+     parsed :: GHC.ParsedSource -> RefactGhc (FreeNames,DeclaredNames)
+     parsed p
+        = return $ hsFreeAndDeclaredRdr nm p
+
+     -- Match [LPat id] (Maybe (LHsType id)) (GRHSs id)
+     match :: GHC.Match GHC.RdrName (GHC.LHsExpr GHC.RdrName) -> RefactGhc (FreeNames,DeclaredNames)
+     match (GHC.Match _fn pats _type rhs) = do
+       let (FN pf, DN pd) = hsFreeAndDeclaredRdr nm pats
+       let (FN rf, DN rd) = hsFreeAndDeclaredRdr nm rhs
+       return (FN $ nub (pf `union` (rf \\ pd)),
+               DN $ nub (pd `union` rd))
+
+     -- ----------------------
+
+     decl :: GHC.HsBind GHC.RdrName -> RefactGhc (FreeNames,DeclaredNames)
+     decl (GHC.FunBind (GHC.L _ _) _ (GHC.MG matches _ _ _) _ _ _) =
+       do
+         fds <- mapM hsFDsFromInsideRdr' matches
+         -- error (show $ nameToString n)
+         return (FN $ nub (concat $ map (fn . fst) fds), DN $ nub (concat $ map (dn . snd) fds))
+
+     decl ((GHC.PatBind p rhs _ _ _) :: GHC.HsBind GHC.RdrName) =
+       do
+         let (FN pf, DN pd) = hsFreeAndDeclaredRdr nm p
+         let (FN rf, DN rd) = hsFreeAndDeclaredRdr nm rhs
+         return
+           (FN $ nub (pf `union` (rf \\ pd)),
+            DN $ nub (pd `union` rd))
+
+     decl ((GHC.VarBind p rhs _) :: GHC.HsBind GHC.RdrName) =
+       do
+         let (FN pf, DN pd) = hsFreeAndDeclaredRdr nm p
+         let (FN rf, DN rd) = hsFreeAndDeclaredRdr nm rhs
+         return
+           (FN $ nub (pf `union` (rf \\ pd)),
+            DN $ nub (pd `union` rd))
+
+     decl _ = return (FN [],DN [])
+
+     -- ----------------------
+
+     expr ((GHC.HsLet decls e) :: GHC.HsExpr GHC.RdrName) =
+       do
+         let (FN df,DN dd) = hsFreeAndDeclaredRdr nm decls
+         let (FN ef,_)     = hsFreeAndDeclaredRdr nm e
+         return (FN $ nub (df `union` (ef \\ dd)), DN $ nub dd)
+
+     expr ((GHC.HsLam (GHC.MG matches _ _ _)) :: GHC.HsExpr GHC.RdrName) =
+       return $ hsFreeAndDeclaredRdr nm matches
+
+     expr ((GHC.HsCase e (GHC.MG matches _ _ _)) :: GHC.HsExpr GHC.RdrName) =
+       do
+         let (FN ef,_)     = hsFreeAndDeclaredRdr nm e
+         let (FN df,DN dd) = hsFreeAndDeclaredRdr nm matches
+         return (FN $ nub (df `union` (ef \\ dd)), DN $ nub dd)
+
+     expr _ = mzero
+
+     stmts ((GHC.BindStmt pat e1 e2 e3) :: GHC.Stmt GHC.RdrName (GHC.LHsExpr GHC.RdrName)) =
+       do
+         let (FN pf,DN pd)  = hsFreeAndDeclaredRdr nm pat
+         let (FN ef,DN _ed) = hsFreeAndDeclaredRdr nm e1
+         let (FN df,DN dd)  = hsFreeAndDeclaredRdr nm [e2,e3]
+         return
+           (FN $ nub (pf `union` (((ef \\ dd) `union` df) \\ pd)), DN $ nub (pd `union` dd))
+
+     stmts ((GHC.LetStmt binds) :: GHC.Stmt GHC.RdrName (GHC.LHsExpr GHC.RdrName)) =
+       return $ hsFreeAndDeclaredRdr nm binds
+
+     stmts _ = mzero
+
 
 -- ---------------------------------------------------------------------
 
