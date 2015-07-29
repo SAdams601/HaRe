@@ -33,7 +33,6 @@ comp fileName (row,col) newName typeRep = do
     RefacUnmodified -> error "Introduce type synonym failed"
     RefacModified -> return ()
   return [refactoredMod]
-
     
 addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc ()
 addSyn (row, col) newName typeRep fileName = do
