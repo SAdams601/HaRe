@@ -19,6 +19,9 @@ import Bag
 import SrcLoc
 import Outputable
 import Language.Haskell.GhcMod
+import Language.Haskell.GHC.ExactPrint.Types
+import Language.Haskell.GHC.ExactPrint
+import Language.Haskell.GHC.ExactPrint.Parsers
 
 introduceTypeSyn :: RefactSettings -> Cradle -> FilePath -> SimpPos -> String -> String -> IO [FilePath]
 introduceTypeSyn settings cradle fileName (row,col) newName typeRep=
@@ -35,15 +38,31 @@ comp fileName (row,col) newName typeRep = do
   return [refactoredMod]
     
 addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc ()
-addSyn (row, col) newName typeRep fileName = do
+addSyn pos@(row, col) newName typeRep fileName = do
   parsed <- getRefactParsed
   let maybePn = locToName (row,col) parsed
   case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
+      let fullStr = "type " ++ newName ++ " = " ++ typeRep
+          (modName, str) = gfromJust "Tried to get mod name" $ getModuleName parsed
+          buff = stringToStringBuffer fullStr
+      modSum <- GHC.getModSummary modName
+      let newSum = modSum {GHC.ms_hspp_buf = Just buff}
+      parsedMod <- GHC.parseModule newSum
+      let fullStr = "type " ++ newName ++ " = " ++ typeRep
+      Right (anns, mod) <- liftIO $ parseModule fileName
+      addTyDecl pos fullStr anns mod
       error "Update to work with exactprint"
-      return ()
-  {-case maybePn of
+      
+type Module = GHC.Located (GHC.HsModule GHC.RdrName)
+
+addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module)
+addTyDecl pos tyDecl anns (GHC.L l mod) = do
+  Right res@(sigAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d "template" tyDecl)
+  
+  error $ "sigAnns====== \n" ++ (show sigAnns) ++ "\nTypeDec pretty print:\n" ++ (SYB.showData SYB.Parser 2  tydec)
+    {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
