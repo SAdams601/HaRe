@@ -19,6 +19,7 @@ import Bag
 import SrcLoc
 import Outputable
 import Language.Haskell.GhcMod
+
 introduceTypeSyn :: RefactSettings -> Cradle -> FilePath -> SimpPos -> String -> String -> IO [FilePath]
 introduceTypeSyn settings cradle fileName (row,col) newName typeRep=
   runRefacSession settings defaultOptions [(Left fileName)] (comp fileName (row,col) newName typeRep)
@@ -27,33 +28,22 @@ comp ::FilePath -> SimpPos -> String -> String -> RefactGhc [ApplyRefacResult]
 comp fileName (row,col) newName typeRep = do
   getModuleGhc fileName
   renamed <- getRefactRenamed
-  m <- getModule
   ((refactoredMod@((_fp,ismod),(anns',parsed')),_))<- applyRefac (addSyn (row,col) newName typeRep fileName) RSAlreadyLoaded
   case ismod of
     RefacUnmodified -> error "Introduce type synonym failed"
     RefacModified -> return ()
   return [refactoredMod]
-  {-let (Just (modName,_)) = getModuleName parsed
-      maybePn = locToType (row, col) renamed
-  case maybePn of
-    Just pn@(GHC.TyDecl (GHC.L _ name) _ tyDefn _) ->
-      case tyDefn of
-        (GHC.TySynonym (GHC.L _ ty)) -> do
-          (refactoredMod@((_fp,ismod),(_,_toks',renamed')),_) <- applyRefac (doIntro name ty) RSAlreadyLoaded
-          case (ismod) of
-            False -> error "Introduce type synonym failed"
-            True -> return ()
-          return [refactoredMod]
-        _ -> error "Given type is not type synonym"
-    Nothing -> error "Given location does not correspond to type"-}
+
     
 addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc ()
 addSyn (row, col) newName typeRep fileName = do
-  renamed <- getRefactRenamed
   parsed <- getRefactParsed
-  let maybePn = locToName (row,col) renamed
-  error "Update to work with exactprint"
-  return ()
+  let maybePn = locToName (row,col) parsed
+  case maybePn of
+    Just _ -> error "Introduce type synonym failed value already defined at source location"
+    Nothing -> do
+      error "Update to work with exactprint"
+      return ()
   {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
