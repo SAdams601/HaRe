@@ -70,6 +70,7 @@ module Language.Haskell.Refact.Utils.TypeUtils
     -- ** Locations
     ,defineLoc, useLoc, locToExp
     ,locToName, locToRdrName
+    ,getName
 
  -- * Program transformation
     -- ** Adding
@@ -89,6 +90,7 @@ module Language.Haskell.Refact.Utils.TypeUtils
     -- ** Locations
     -- ,toRelativeLocs, rmLocs
     -- ** Default values
+   ,defaultPN {- ,defaultPNT -},defaultName {-,defaultModName-},defaultExp -- ,defaultPat, defaultExpUnTyped
 
 
     -- ** Identifiers, expressions, patterns and declarations
@@ -264,7 +266,6 @@ defaultName = n
 defaultExp::HsExpP
 -- defaultExp=Exp (HsId (HsVar defaultPNT))
 defaultExp=GHC.HsVar $ mkRdrName "nothing"
-
 
 mkRdrName :: String -> GHC.RdrName
 mkRdrName s = GHC.mkVarUnqual (GHC.mkFastString s)
@@ -620,11 +621,6 @@ isSimplePatBind :: (GHC.DataId t) => GHC.LHsBind t-> Bool
 isSimplePatBind decl = case decl of
      (GHC.L _l (GHC.PatBind p _rhs _ty _fvs _)) -> hsPNs p /= []
      _ -> False
-
-hsBindLRIsSimple :: (SYB.Data t) => GHC.HsBindLR t t -> Bool
-hsBindLRIsSimple decl = case decl of
-  (GHC.PatBind p _rhs _ty _fvs _) -> hsPNs p /= []
-  _ -> False
 
 -- | Return True if a declaration is a pattern binding but not a simple one.
 isComplexPatDecl::GHC.LHsDecl name -> Bool
@@ -2430,7 +2426,6 @@ locToExp beginPos endPos t = res
         (startLoc>=beginPos) && (startLoc<= endPos) && (endLoc>= beginPos) && (endLoc<=endPos)
 
 --------------------------------------------------------------------------------
-
 
 
 ghcToPN :: GHC.RdrName -> PName

@@ -22,6 +22,7 @@ module Language.Haskell.Refact.API
        , loadModuleGraphGhc
        , ensureTargetLoaded
        , canonicalizeGraph
+
        , logm
        , logDataWithAnns
 
@@ -252,7 +253,7 @@ module Language.Haskell.Refact.API
     -- *** Property checking
     ,isVarId,isConId,isOperator,isTopLevelPN,isLocalPN,isNonLibraryName -- ,isTopLevelPNT
     ,isQualifiedPN {- , isFunName, isPatName-}, isFunOrPatName {-,isTypeCon-} ,isTypeSig
-    ,isFunBindP,isFunBindR,isPatBindP,isPatBindR,isSimplePatBind,hsBindLRIsSimple
+    ,isFunBindP,isFunBindR,isPatBindP,isPatBindR,isSimplePatBind
     ,isComplexPatBind,isComplexPatDecl,isFunOrPatBindP,isFunOrPatBindR
     ,usedWithoutQualR {- ,canBeQualified, hasFreeVars -},isUsedInRhs
     ,findNameInRdr
@@ -275,7 +276,7 @@ module Language.Haskell.Refact.API
     -- *** Locations
     ,defineLoc, useLoc, locToExp  -- , getStartEndLoc
     ,locToName, locToRdrName
-    ,getName, locToType
+    ,getName
 
  -- * Program transformation
     -- *** Adding
@@ -295,7 +296,7 @@ module Language.Haskell.Refact.API
     -- *** Locations
     -- ,toRelativeLocs, rmLocs
     -- *** Default values
-   ,defaultPN {- ,defaultPNT -},defaultName {-,defaultModName-},defaultExp, defaultExpr, isDefaultExpr -- ,defaultPat, defaultExpUnTyped
+   ,defaultPN {- ,defaultPNT -},defaultName {-,defaultModName-},defaultExp -- ,defaultPat, defaultExpUnTyped
 
 
     -- *** Identifiers, expressions, patterns and declarations
