@@ -1,0 +1,76 @@
+Name: HaRe-tests
+Version: 0
+Author: Alan Zimmerman
+Maintainer: Alan Zimmerman
+Cabal-Version: >= 1.8
+Build-Type: Simple
+
+Executable foo
+  Main-Is: TokenTest.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable dd2
+  Main-Is: DupDef/Dd2.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+Executable dd3
+  Main-Is: DupDef/Dd3.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+
+Executable m
+  Main-Is: M.hs
+  Hs-Source-Dirs:       .
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable a1
+  Main-Is: Renaming/A1.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable a2
+  Main-Is: Renaming/A2.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable a3
+  Main-Is: Renaming/A3.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable a4
+  Main-Is: Renaming/A4.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable a5
+  Main-Is: Renaming/A5.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable c7
+  Main-Is: Renaming/C7.hs
+  Other-Modules : Renaming.D7
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable qualclient
+  Main-Is: Renaming/QualClient.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+
+Executable th
+  Main-Is: TH/Main.hs
+  Build-Depends:          base >= 4.0  && < 4.9
+                        , syb
+                        , template-haskell
+
+-- ---------------------------------------------------------------------
+
+Executable ltta1
+
+  Main-Is: LiftToToplevel/A1.hs
+  Other-Modules : LiftToToplevel.C1
+                  LiftToToplevel.D1
+  Build-Depends:          base >= 4.0  && < 4.9

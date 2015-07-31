@@ -11,7 +11,6 @@ module Language.Haskell.Refact.Utils.TypeSyn where
 import qualified GHC        as GHC
 import qualified Name       as GHC
 import qualified Outputable as GHC
-import qualified HsExpr     as GHC
 
 type HsExpP    = GHC.HsExpr GHC.RdrName
 type HsPatP    = GHC.Pat GHC.RdrName
@@ -23,7 +22,7 @@ type HsDeclsP = GHC.HsGroup GHC.Name
 type InScopes = [GHC.Name]
 
 -- Additions for GHC
-type PosToken = (GHC.Located GHC.Token, String)
+-- type PosToken = (GHC.Located GHC.Token, String)
 
 type Export = GHC.LIE GHC.RdrName
 
@@ -53,23 +52,25 @@ instance Show GHC.NameSpace where
 
 instance GHC.Outputable GHC.NameSpace where
   ppr x = GHC.text $ show x
-{-
 instance GHC.Outputable (GHC.MatchGroup GHC.Name GHC.Type) where
   ppr mg = GHC.text "MatchGroup" GHC.<+> GHC.ppr (GHC.mg_alts mg)
 
 
-instance GHC.Outputable (GHC.Match GHC.Name) where
-  ppr (GHC.Match pats mtyp grhs) = GHC.text "Match" GHC.<+> GHC.ppr pats
+instance GHC.Outputable (GHC.MatchGroup GHC.Name (GHC.LHsExpr GHC.Name)) where
+  ppr (GHC.MG ms _ _ _) = GHC.text "MatchGroup" GHC.<+> GHC.ppr ms
+
+instance GHC.Outputable (GHC.Match GHC.Name (GHC.LHsExpr GHC.Name)) where
+  ppr (GHC.Match _fn pats mtyp grhs) = GHC.text "Match" GHC.<+> GHC.ppr pats
                                                     GHC.<+> GHC.ppr mtyp
                                                     GHC.<+> GHC.ppr grhs
 
 
-instance GHC.Outputable (GHC.GRHSs GHC.Name) where
+instance GHC.Outputable (GHC.GRHSs GHC.Name (GHC.LHsExpr GHC.Name)) where
   ppr (GHC.GRHSs grhss binds) = GHC.text "GRHSs" GHC.<+> GHC.ppr grhss
                                                  GHC.<+> GHC.ppr binds
 
 
-instance GHC.Outputable (GHC.GRHS GHC.Name) where
+instance GHC.Outputable (GHC.GRHS GHC.Name (GHC.LHsExpr GHC.Name)) where
   ppr (GHC.GRHS guards rhs) = GHC.text "GRHS" GHC.<+> GHC.ppr guards
                                               GHC.<+> GHC.ppr rhs
 
@@ -85,10 +86,16 @@ instance GHC.Outputable (GHC.ConDeclField GHC.Name) where
                                           GHC.<+> GHC.ppr typ
                                           GHC.<+> GHC.ppr doc
 
+instance GHC.Outputable (GHC.TyFamEqn GHC.Name (GHC.LHsTyVarBndrs GHC.Name)) where
+  ppr (GHC.TyFamEqn name pats rhs) = GHC.text "TyFamEqn"
+                                          GHC.<+> GHC.ppr name
+                                          GHC.<+> GHC.ppr pats
+                                          GHC.<+> GHC.ppr rhs
 
 -- ---------------------------------------------------------------------
 
 -- type HsModuleP = GHC.Located (GHC.HsModule GHC.RdrName)
 
 -- ---------------------------------------------------------------------
--}
+
+type PosToken = (GHC.Located GHC.Token, String)

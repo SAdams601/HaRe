@@ -1,9 +1,12 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE UndecidableInstances #-} -- for GHC.DataId
 
 module Language.Haskell.Refact.Utils.Utils
        (
@@ -17,46 +20,45 @@ module Language.Haskell.Refact.Utils.Utils
        , runRefacSession
        , applyRefac
        , refactDone
-       , ApplyRefacResult
-       , RefacSource(..)
 
-       , update
+       , Update(..)
        , fileNameToModName
        , fileNameFromModSummary
        , getModuleName
        , clientModsAndFiles
        , serverModsAndFiles
 
+       -- * For testing
+       , initGhcSession
        ) where
 
 import Control.Monad.State
 import Data.List
 import Data.Maybe
+
+import Language.Haskell.GHC.ExactPrint
+import Language.Haskell.GHC.ExactPrint.Utils
+
 import Language.Haskell.GhcMod
-import Language.Haskell.Refact.Utils.GhcBugWorkArounds
+import qualified Language.Haskell.GhcMod.Internal as GM
+
 import Language.Haskell.Refact.Utils.GhcModuleGraph
-import Language.Haskell.Refact.Utils.GhcUtils
 import Language.Haskell.Refact.Utils.GhcVersionSpecific
-import Language.Haskell.Refact.Utils.LocUtils
 import Language.Haskell.Refact.Utils.Monad
 import Language.Haskell.Refact.Utils.MonadFunctions
-import Language.Haskell.Refact.Utils.TypeSyn
-import Language.Haskell.Refact.Utils.TypeUtils
-{-
-import Language.Haskell.TokenUtils.DualTree
-import Language.Haskell.TokenUtils.TokenUtils
-import Language.Haskell.TokenUtils.Utils
--}
+import Language.Haskell.Refact.Utils.Types
+import Language.Haskell.Refact.Utils.Variables
 import System.Directory
 import System.FilePath.Posix
+import qualified Data.Generics as SYB
 
 import qualified Digraph       as GHC
-import qualified FastString    as GHC
-import qualified GHC
+import qualified GHC           as GHC
+
+import qualified GHC.SYB.Utils as SYB
 import qualified Outputable    as GHC
 
-import qualified Data.Generics as SYB
-import qualified GHC.SYB.Utils as SYB
+import qualified Data.Map      as Map
 
 -- import Debug.Trace
 
@@ -75,7 +77,7 @@ fileNameToModName fileName = do
 getModuleMaybe :: FilePath -> RefactGhc (Maybe GHC.ModSummary)
 getModuleMaybe fileName = do
   cfileName <- liftIO $ canonicalizePath fileName
-  -- logm $ "getModuleMaybe for (fileName,cfileName):" ++ show (fileName,cfileName)
+  logm $ "getModuleMaybe for (fileName,cfileName):" ++ show (fileName,cfileName)
 
   graphs <- gets rsGraph
   currentTgt <- gets rsCurrentTarget
@@ -85,10 +87,10 @@ getModuleMaybe fileName = do
   -- graph <- GHC.getModuleGraph
   -- cgraph <- liftIO $ canonicalizeGraph graph
 
-  -- logm $ "getModuleMaybe: [mfn]=" ++ show (map (\(mfn,_ms) -> mfn) cgraph)
+  logm $ "getModuleMaybe: [mfn]=" ++ show (map (\(mfn,_ms) -> mfn) cgraph)
 
   let mm = filter (\(mfn,_ms) -> mfn == Just cfileName) cgraph
-  -- logm $ "getModuleMaybe: mm=" ++ show mm
+  logm $ "getModuleMaybe: mm=" ++ show mm
 
   case mm of
     [] -> return Nothing
@@ -118,6 +120,7 @@ getModuleGhc targetFile = do
   -- TODO: consult cached store of multiple module graphs, one for
   --       each main file.
   mTarget <- identifyTargetModule targetFile
+  logm $ "getModuleGhc:mTarget=" ++ show mTarget
   case mTarget of
     Nothing -> return ()
     Just tm -> do
@@ -136,18 +139,23 @@ identifyTargetModule targetFile = do
   currentDirectory <- liftIO getCurrentDirectory
   target1 <- liftIO $ canonicalizePath targetFile
   target2 <- liftIO $ canonicalizePath (combine currentDirectory targetFile)
-  -- logm $ "identifyTargetModule:(targetFile,target1,target2)=" ++ show (targetFile,target1,target2)
-  graphs <- gets rsModuleGraph
+  logm $ "identifyTargetModule:(targetFile,target1,target2)=" ++ show (targetFile,target1,target2)
+  -- graphs <- gets rsModuleGraph
+  graphs <- gets rsGraph
+  -- let graphs = concatMap (\(_,cg) -> cg) cgraphs
 
-  -- logm $ "identifyTargetModule:graphs=" ++ show graphs
+  logm $ "identifyTargetModule:graphs=" ++ show graphs
 
   let ff = catMaybes $ map (findInTarget target1 target2) graphs
-  -- logm $ "identifyTargetModule:ff=" ++ show ff
+  logm $ "identifyTargetModule:ff=" ++ show ff
   case ff of
     [] -> return Nothing
     ms -> return (Just (ghead ("identifyTargetModule:" ++ (show ms)) ms))
 
-findInTarget :: FilePath -> FilePath -> ([FilePath],GHC.ModuleGraph) -> Maybe TargetModule
+-- ---------------------------------------------------------------------
+
+findInTarget :: FilePath -> FilePath -> ([FilePath],[(Maybe FilePath,GHC.ModSummary)])
+             -> Maybe TargetModule
 findInTarget f1 f2 (fps,graph) = r'
   where
     -- We also need to process the case where it is a main file for an exe.
@@ -160,16 +168,18 @@ findInTarget f1 f2 (fps,graph) = r'
            ms -> if x == f1 || x == f2 then Just (fps,ghead "findInTarget" ms)
                                       else Nothing
       _  -> Nothing
-    isMainModSummary ms = (show $ GHC.ms_mod ms) == "Main"
+    isMainModSummary (_,ms) = (show $ GHC.ms_mod ms) == "Main"
 
     r = case filter (compModFiles f1 f2) graph of
           [] -> Nothing
           ms -> Just (fps,ghead "findInTarget.2" ms)
-    compModFiles :: FilePath-> FilePath -> GHC.ModSummary -> Bool
-    compModFiles fileName1 fileName2 ms =
+    compModFiles :: FilePath-> FilePath -> (Maybe FilePath,GHC.ModSummary) -> Bool
+    compModFiles fileName1 fileName2 (mfp,ms) =
       case GHC.ml_hs_file $ GHC.ms_location ms of
         Nothing -> False
         Just fn -> fn == fileName1 || fn == fileName2
+                   || mfp == Just fileName1
+                   || mfp == Just fileName2
 
     r' = listToMaybe $ catMaybes [r,re]
 
@@ -180,9 +190,9 @@ findInTarget f1 f2 (fps,graph) = r'
 -- target is the currently loaded one
 
 activateModule :: TargetModule -> RefactGhc GHC.ModSummary
-activateModule (target, modSum) = do
-  logm $ "activateModule:" ++ show (target,GHC.ms_mod modSum)
-  newModSum <- ensureTargetLoaded (target,modSum)
+activateModule tm@(target, (mfp,modSum)) = do
+  logm $ "activateModule:" ++ show (target,mfp,GHC.ms_mod modSum)
+  newModSum <- ensureTargetLoaded tm
   getModuleDetails newModSum
   return newModSum
 
@@ -195,29 +205,26 @@ activateModule (target, modSum) = do
 -- it does
 getModuleDetails :: GHC.ModSummary -> RefactGhc ()
 getModuleDetails modSum = do
-      p <- GHC.parseModule modSum
-      t <- GHC.typecheckModule p
+  logm $ "getModuleDetails:modSum=" ++ show modSum
+  p <- GHC.parseModule modSum
+  t <- GHC.typecheckModule p
 
-      -- GHC.setContext [GHC.IIModule (GHC.moduleName $ GHC.ms_mod modSum)]
-      setGhcContext modSum
+  logm $ "getModuleDetails:setting context.."
+  -- setGhcContext modSum
+  logm $ "getModuleDetails:context set"
 
-      -- Use the workaround to get the tokens, the existing one does
-      -- not return tokens for CPP processed files.
-      -- tokens <- GHC.getRichTokenStream (GHC.ms_mod modSum)
-      tokens <- getRichTokenStreamWA (GHC.ms_mod modSum)
-      mtm <- gets rsModule
-      case mtm of
-        Just tm -> if ((rsStreamModified tm == False)
-                      && ((GHC.mkFastString $ fileNameFromModSummary modSum) ==
-                          (fileNameFromTok $ ghead "getModuleDetails" tokens)))
-                     then return ()
-                     else if rsStreamModified tm == False
-                            then putParsedModule t tokens
-                            else error $ "getModuleDetails: trying to load a module without finishing with active one."
+  mtm <- gets rsModule
+  case mtm of
+    Just tm -> if ((rsStreamModified tm == RefacUnmodifed)
+                  && True)
+                 then return ()
+                 else if rsStreamModified tm == RefacUnmodifed
+                        then putParsedModule t
+                        else error $ "getModuleDetails: trying to load a module without finishing with active one."
 
-        Nothing -> putParsedModule t tokens
+    Nothing -> putParsedModule t
 
-      return ()
+  return ()
 
 -- ---------------------------------------------------------------------
 
@@ -230,9 +237,11 @@ parseSourceFileGhc targetFile = do
       GHC.setTargets [target]
       void $ GHC.load GHC.LoadAllTargets -- Loads and compiles, much as calling ghc --make
      -}
-      -- logm $ "parseSourceFileGhc:about to loadModuleGraphGhc for" ++ (show targetFile)
+      currentDir <- liftIO getCurrentDirectory
+      logm $ "parseSourceFileGhc:currentDir=" ++ currentDir
+      logm $ "parseSourceFileGhc:about to loadModuleGraphGhc for" ++ (show targetFile)
       loadModuleGraphGhc (Just [targetFile])
-      -- logm $ "parseSourceFileGhc:loadModuleGraphGhc done"
+      logm $ "parseSourceFileGhc:loadModuleGraphGhc done"
 
       mm <- getModuleMaybe targetFile
       case mm of
@@ -240,12 +249,6 @@ parseSourceFileGhc targetFile = do
         Just modSum -> getModuleDetails modSum
 
 -- ---------------------------------------------------------------------
-
--- | The result of a refactoring is the file, a flag as to whether it
--- was modified, the updated token stream, and the updated AST
--- type ApplyRefacResult = ((FilePath, Bool), ([Ppr],[PosToken], GHC.RenamedSource))
-type ApplyRefacResult = ((FilePath, Bool), ([Line PosToken],[PosToken], GHC.RenamedSource))
-
 
 -- | Manage a whole refactor session. Initialise the monad, load the
 -- whole project if required, and then apply the individual
@@ -256,38 +259,36 @@ type ApplyRefacResult = ((FilePath, Bool), ([Line PosToken],[PosToken], GHC.Rena
 --
 runRefacSession ::
        RefactSettings
-    -> Cradle                       -- ^ Identifies the surrounding
-                                    -- project
+    -> Options                      -- ^ ghc-mod options
+    -> Targets                      -- ^ files/modules to load for the session
     -> RefactGhc [ApplyRefacResult] -- ^ The computation doing the
                                     -- refactoring. Normally created
                                     -- via 'applyRefac'
     -> IO [FilePath]
-runRefacSession settings cradle comp = do
+runRefacSession settings opt targets comp = do
   let
-   initialState = RefSt
-        { rsSettings = settings
-        , rsUniqState = 1
-        , rsFlags = RefFlags False
-        , rsStorage = StorageNone
-        , rsGraph = []
-        , rsModuleGraph = []
+    initialState = RefSt
+        { rsSettings      = settings
+        , rsUniqState     = 1
+        , rsSrcSpanCol    = 1
+        , rsFlags         = RefFlags False
+        , rsStorage       = StorageNone
+        , rsGraph         = []
+        , rsCabalGraph    = []
+        , rsModuleGraph   = []
         , rsCurrentTarget = Nothing
-        , rsModule = Nothing
+        , rsModule        = Nothing
         }
 
-  (refactoredMods,_s) <- runRefactGhc (initGhcSession cradle (rsetImportPaths settings) >>
-                                       comp) initialState
+    comp' = initGhcSession targets >> comp
+    -- comp' = gmSetLogLevel GmError >> comp
+  (refactoredMods,_s) <- runRefactGhc comp' targets initialState opt
 
   let verbosity = rsetVerboseLevel (rsSettings initialState)
   writeRefactoredFiles verbosity refactoredMods
   return $ modifiedFiles refactoredMods
 
 -- ---------------------------------------------------------------------
-
-data RefacSource = RSFile FilePath
-                 | RSMod GHC.ModSummary
-                 | RSAlreadyLoaded
-
 -- TODO: the module should be stored in the state, and returned if it
 -- has been modified in a prior refactoring, instead of being parsed
 -- afresh each time.
@@ -316,41 +317,143 @@ applyRefac refac source = do
 
     res <- refac  -- Run the refactoring, updating the state as required
 
-    mod'   <- getRefactRenamed
+    -- mod'   <- getRefactRenamed
+    mod'   <- getRefactParsed
     -- toks'  <- fetchToksFinal
-    let toks' = []
+    -- let toks' = []
     -- pprVal <- fetchPprFinal
-    linesVal <- fetchLinesFinal
-    m      <- getRefactStreamModified
+    anns <- fetchAnnsFinal
+    m    <- getRefactStreamModified
 
     -- Clear the refactoring state
     clearParsedModule
 
-    return (((fileName,m),(linesVal,toks', mod')),res)
+    return (((fileName,m),(anns, mod')),res)
 
 
 -- ---------------------------------------------------------------------
 
 -- |Returns True if any of the results has its modified flag set
 refactDone :: [ApplyRefacResult] -> Bool
-refactDone rs = any (\((_,d),_) -> d) rs
+refactDone rs = any (\((_,d),_) -> d == RefacModified) rs
 
 -- ---------------------------------------------------------------------
-
 
 modifiedFiles :: [ApplyRefacResult] -> [String]
 modifiedFiles refactResult = map (\((s,_),_) -> s)
-                           $ filter (\((_,b),_) -> b) refactResult
+                           $ filter (\((_,b),_) -> b == RefacModified) refactResult
 
 -- ---------------------------------------------------------------------
 
-fileNameFromModSummary :: GHC.ModSummary -> FilePath
-fileNameFromModSummary modSummary = fileName
-  where
-    -- TODO: what if we are loading a compiled only client and do not
-    -- have the original source?
-    Just fileName = GHC.ml_hs_file (GHC.ms_location modSummary)
+-- | Initialise the GHC session, when starting a refactoring.
+--   This should never be called directly.
+initGhcSession :: Targets -> RefactGhc ()
+initGhcSession tgts = do
+    {-
+    settings <- getRefacSettings
+    df <- GHC.getSessionDynFlags
+    let df2 = GHC.gopt_set df GHC.Opt_KeepRawTokenStream
+    void $ GHC.setSessionDynFlags df2
 
+    -- liftIO $ putStrLn "initGhcSession:entered (IO)"
+    logm $ "initGhcSession:entered2"
+    cr <- cradle
+    logm $ "initGhcSession:cr=" ++ show cr
+    case cradleCabalFile cr of
+      Just _ -> do
+        (cabalGraph,targets) <- cabalAllTargets cr
+        logm $ "initGhcSession:targets=" ++ show targets
+
+        -- TODO: Cannot load multiple main modules, must try to load
+        -- each main module and retrieve its module graph, and then
+        -- set the targets to this superset.
+
+        let targets' = getEnabledTargets settings targets
+
+        case targets' of
+          ([],[]) -> return ()
+          (libTgts,exeTgts) -> do
+                     -- liftIO $ warningM "HaRe" $ "initGhcSession:tgts=" ++ (show (libTgts,exeTgts))
+                     logm $ "initGhcSession:(libTgts,exeTgts)=" ++ (show (libTgts,exeTgts))
+                     -- setTargetFiles tgts
+                     -- void $ GHC.load GHC.LoadAllTargets
+
+                     -- AZ: carry on here, store cabalGraph instead of loadModuleGraphGhc
+                     mapM_ loadModuleGraphGhc $ map (\t -> Just [t]) exeTgts
+
+                     -- Load the library last, most likely in context
+                     case libTgts of
+                       [] -> return ()
+                       _ -> loadModuleGraphGhc (Just libTgts)
+
+                     -- moduleGraph <- gets rsModuleGraph
+                     -- logm $ "initGhcSession:rsModuleGraph=" ++ (show moduleGraph)
+
+      Nothing -> do
+          let maybeMainFile = rsetMainFile settings
+          loadModuleGraphGhc maybeMainFile
+          return()
+    -}
+    -- load the first target is specified
+    case tgts of
+      [] -> return ()
+      _ -> case head tgts of
+             Left filename -> getModuleGhc filename
+             Right modname -> getModuleGhc (GHC.moduleNameString modname)
+
+    return ()
+
+-- ---------------------------------------------------------------------
+{-
+-- | Extracting all 'Module' 'FilePath's for libraries, executables,
+-- tests and benchmarks.
+cabalAllTargets :: Cradle -> RefactGhc (CabalGraph,([String],[String],[String],[String]))
+cabalAllTargets crdl = RefactGhc (GmlT $ cabalOpts crdl)
+  where
+    -- Note: This runs inside ghc-mod's GmlT monad
+    cabalOpts :: Cradle -> GhcModT (StateT RefactState IO) (CabalGraph,([String],[String],[String],[String]))
+    cabalOpts Cradle{..} = do
+        comps <- mapM (resolveEntrypoint crdl) =<< getComponents
+        mcs <- cached cradleRootDir resolvedComponentsCache comps
+
+        let
+            -- foo :: Map.Map ChComponentName (Set.Set ModulePath)
+            -- foo = Map.map gmcEntrypoints mcs
+
+            -- bar :: Map.Map ChComponentName GmModuleGraph
+            -- bar = Map.map gmcHomeModuleGraph mcs
+
+            entries = Map.toList $ Map.map gmcEntrypoints mcs
+            isExe (ChExeName _,_)     = True
+            isExe _                   = False
+            isLib (ChLibName,_)       = True
+            isLib _                   = False
+            isTest (ChTestName _,_)   = True
+            isTest _                  = False
+            isBench (ChBenchName _,_) = True
+            isBench _                 = False
+            getTgts :: (ChComponentName,Set.Set ModulePath) -> [String]
+            getTgts (_,mps) = map mpPath $ Set.toList mps
+
+            exeTargets   = concatMap getTgts $ filter isExe entries
+            libTargets   = concatMap getTgts $ filter isLib entries
+            testTargets  = concatMap getTgts $ filter isTest entries
+            benchTargets = concatMap getTgts $ filter isBench entries
+        return (mcs,(libTargets,exeTargets,testTargets,benchTargets))
+-}
+-- ---------------------------------------------------------------------
+{-
+getEnabledTargets :: RefactSettings -> ([FilePath],[FilePath],[FilePath],[FilePath]) -> ([FilePath],[FilePath])
+getEnabledTargets settings (libt,exet,testt,bencht) = (targetsLib,targetsExe)
+  where
+    (libEnabled, exeEnabled, testEnabled, benchEnabled) = rsetEnabledTargets settings
+    targetsLib = on libEnabled libt
+    targetsExe = on exeEnabled exet
+              ++ on testEnabled testt
+              ++ on benchEnabled bencht
+
+    on flag xs = if flag then xs else []
+-}
 -- ---------------------------------------------------------------------
 
 class (SYB.Data t, SYB.Data t1) => Update t t1 where
@@ -362,15 +465,16 @@ class (SYB.Data t, SYB.Data t1) => Update t t1 where
          -> t1    -- ^ The contex where the old syntax phrase occurs.
          -> RefactGhc t1  -- ^ The result.
 
-instance (SYB.Data t, GHC.OutputableBndr n, SYB.Data n) => Update (GHC.Located (GHC.HsExpr n)) t where
+instance (SYB.Data t, GHC.OutputableBndr n, GHC.DataId n)
+  => Update (GHC.Located (GHC.HsExpr n)) t where
     update oldExp newExp t
-           = everywhereMStaged SYB.Parser (SYB.mkM inExp) t
+           = SYB.everywhereMStaged SYB.Parser (SYB.mkM inExp) t
        where
         inExp (e::GHC.Located (GHC.HsExpr n))
           | sameOccurrence e oldExp
                = do
                     -- drawTokenTree "update Located HsExpr starting" -- ++AZ++
-                    _ <- updateToks oldExp newExp prettyprint False
+                    -- _ <- updateToks oldExp newExp prettyprint False
                     -- drawTokenTree "update Located HsExpr done" -- ++AZ++
 
                 -- error "update: updated tokens" -- ++AZ++ debug
@@ -378,38 +482,41 @@ instance (SYB.Data t, GHC.OutputableBndr n, SYB.Data n) => Update (GHC.Located (
                     return newExp
           | otherwise = return e
 
-instance (SYB.Data t, GHC.OutputableBndr n, SYB.Data n) => Update (GHC.LPat n) t where
+instance (SYB.Data t, GHC.OutputableBndr n, GHC.DataId n)
+   => Update (GHC.LPat n) t where
     update oldPat newPat t
-           = everywhereMStaged SYB.Parser (SYB.mkM inPat) t
+           = SYB.everywhereMStaged SYB.Parser (SYB.mkM inPat) t
         where
           inPat (p::GHC.LPat n)
             | sameOccurrence p oldPat
                 = do
-                     _ <- updateToks oldPat newPat prettyprint False
+                     -- _ <- updateToks oldPat newPat prettyprint False
                      -- TODO: make sure to call syncAST
                      return newPat
             | otherwise = return p
 
-instance (SYB.Data t, GHC.OutputableBndr n, SYB.Data n) => Update (GHC.LHsType n) t where
+instance (SYB.Data t, GHC.OutputableBndr n, GHC.DataId n)
+  => Update (GHC.LHsType n) t where
      update oldTy newTy t
-           = everywhereMStaged SYB.Parser (SYB.mkM inTyp) t
+           = SYB.everywhereMStaged SYB.Parser (SYB.mkM inTyp) t
         where
           inTyp (t'::GHC.LHsType n)
             | sameOccurrence t' oldTy
                 = do
-                     _ <- updateToks oldTy newTy prettyprint False
+                     -- _ <- updateToks oldTy newTy prettyprint False
                      -- TODO: make sure to call syncAST
                      return newTy
             | otherwise = return t'
 
-instance (SYB.Data t, GHC.OutputableBndr n1, GHC.OutputableBndr n2, SYB.Data n1, SYB.Data n2) => Update (GHC.LHsBindLR n1 n2) t where
+instance (SYB.Data t, GHC.OutputableBndr n1, GHC.OutputableBndr n2, GHC.DataId n1, GHC.DataId n2)
+   => Update (GHC.LHsBindLR n1 n2) t where
        update oldBind newBind t
-             = everywhereMStaged SYB.Parser (SYB.mkM inBind) t
+             = SYB.everywhereMStaged SYB.Parser (SYB.mkM inBind) t
           where
             inBind (t'::GHC.LHsBindLR n1 n2)
               | sameOccurrence t' oldBind
                   = do
-                       _ <- updateToks oldBind newBind prettyprint False
+                       -- _ <- updateToks oldBind newBind prettyprint False
                        -- TODO: make sure to call syncAST
                        return newBind
               | otherwise = return t'
@@ -421,7 +528,7 @@ instance (SYB.Data t, GHC.OutputableBndr n1, GHC.OutputableBndr n2, SYB.Data n1,
 writeRefactoredFiles ::
   VerboseLevel -> [ApplyRefacResult] -> IO ()
 writeRefactoredFiles verbosity files
-  = do let filesModified = filter (\((_f,m),_) -> m == modified) files
+  = do let filesModified = filter (\((_f,m),_) -> m == RefacModified) files
 
        -- TODO: restore the history function
        -- ++AZ++ PFE0.addToHistory isSubRefactor (map (fst.fst) filesModified)
@@ -429,30 +536,24 @@ writeRefactoredFiles verbosity files
        -- mapM_ writeTestDataForFile files   -- This should be removed for the release version.
 
      where
-       modifyFile ((fileName,_),(finalLines,ts,renamed)) = do
-           -- let source = concatMap (snd.snd) ts
+       modifyFile ((fileName,_),(ann,parsed)) = do
 
-           let ts' = bypassGHCBug7351 ts
-           -- let source = GHC.showRichTokenStream ts'
-
-           -- let source = renderPpr ppr
-           let source = renderLines finalLines
-
-           -- (Julien personnal remark) seq forces the evaluation of
-           -- its first argument and returns its second argument. It
-           -- is unclear for me why (length source) evaluation is
-           -- forced.
+           let source = exactPrintWithAnns parsed ann
            let (baseFileName,ext) = splitExtension fileName
            seq (length source) (writeFile (baseFileName ++ ".refactored" ++ ext) source)
 
            when (verbosity == Debug) $
              do
-               writeFile (fileName ++ ".tokens") (showToks ts')
-               writeFile (fileName ++ ".renamed_out") (showGhc renamed)
-               writeFile (fileName ++ ".AST_out") $ ((showGhc renamed) ++
+               writeFile (fileName ++ ".parsed_out") (showGhc parsed)
+               writeFile (fileName ++ ".AST_out")   ((showGhc parsed) ++
                       "\n\n----------------------\n\n" ++
-                      (SYB.showData SYB.Renamer 0 renamed))
-
+                      -- (SYB.showData SYB.Parser 0 parsed) ++
+                      (showAnnData ann 0 parsed) ++
+                      "\n\n----------------------\n\n" ++
+                      (showGhc ann) ++
+                      "\n\n----------------------\n\n"
+--                      (showAnnData (organiseAnns ann) 0 parsed)
+                      )
 -- ---------------------------------------------------------------------
 
 -- | Return the client modules and file names. The client modules of
@@ -460,8 +561,7 @@ writeRefactoredFiles verbosity files
 -- import module m.
 
 -- TODO: deal with an anonymous main module, by taking Maybe GHC.ModuleName
-clientModsAndFiles
-  :: GHC.ModuleName -> RefactGhc [([FilePath],GHC.ModSummary)]
+clientModsAndFiles :: GHC.ModuleName -> RefactGhc [TargetModule]
 clientModsAndFiles m = do
   modsum <- GHC.getModSummary m
 
@@ -473,12 +573,6 @@ clientModsAndFiles m = do
         where
           mg = getModulesAsGraph False ms Nothing
           rg = GHC.transposeG mg
-          {-
-          modNode = gfromJust ("clientModsAndFiles:" ++ (showGhc (GHC.ms_mod modsum,target,mg))) 
-                  $ find (\(msum',_,_) -> mycomp msum' modsum) (GHC.verticesG rg)
-          clientMods = filter (\msum' -> not (mycomp msum' modsum))
-                     $ map summaryNodeSummary $ GHC.reachableG rg modNode
-          -}
           maybeModNode = find (\(msum',_,_) -> mycomp msum' modsum) (GHC.verticesG rg)
           clientMods = case maybeModNode of
                          Nothing -> []
@@ -490,13 +584,16 @@ clientModsAndFiles m = do
   -- Need to strip out duplicates, based on the snd of the tuple
       clients' = nubBy cc clients
       cc (_,mg1) (_,mg2)
-        = if (show $ GHC.ms_mod mg1) == "Main" || (show $ GHC.ms_mod mg2) == "Main" 
+        = if (show $ GHC.ms_mod mg1) == "Main" || (show $ GHC.ms_mod mg2) == "Main"
             then False
             else mycomp mg1 mg2
-
+      cms (fps,ms) = do
+        ms1 <- canonicalizeModSummary ms
+        return (fps,ms1)
   logm $ "clientModsAndFiles:clients=" ++ show clients
   logm $ "clientModsAndFiles:clients'=" ++ show clients'
-  return clients'
+  clients'' <- mapM cms clients'
+  return clients''
 
 -- TODO : find decent name and place for this.
 mycomp :: GHC.ModSummary -> GHC.ModSummary -> Bool
@@ -521,9 +618,3 @@ serverModsAndFiles m = do
 
   return serverMods
 
--- ---------------------------------------------------------------------
-
-instance (Show GHC.ModuleName) where
-  show = GHC.moduleNameString
-
--- ---------------------------------------------------------------------

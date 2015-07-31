@@ -89,17 +89,10 @@ instance Exception HareError
 
 main :: IO ()
 main = flip catches handlers $ do
--- #if __GLASGOW_HASKELL__ >= 611
     hSetEncoding stdout utf8
--- #endif
-    -- currentDirectory <- getCurrentDirectory
     args <- getArgs
     let (opt,cmdArg) = parseArgs argspec args
     cradle <- findCradle
-    -- case (cradleCabalDir cradle) of
-    --   Nothing -> return ()
-    --   Just dir -> setCurrentDirectory dir
-    -- hPutStrLn stderr $ "cabal file=" ++ show (cradleCabalFile cradle) -- ++AZ++ debug
     let cmdArg0 = cmdArg !. 0
         cmdArg1 = cmdArg !. 1
         cmdArg2 = cmdArg !. 2
@@ -108,16 +101,16 @@ main = flip catches handlers $ do
         cmdArg5 = cmdArg !. 5
         cmdArg6 = cmdArg !. 6
     res <- case cmdArg0 of
-
+{-
       -- demote wants FilePath -> SimpPos
       "demote" -> runFunc cradle $ demote opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
 
       -- dupdef wants FilePath -> String -> SimpPos
       "dupdef" -> runFunc cradle $ duplicateDef opt cradle cmdArg1 cmdArg2 (parseSimpPos cmdArg3 cmdArg4)
-
+-}
       -- iftocase wants FilePath -> SimpPos -> SimpPos
-      "iftocase" -> runFunc cradle $ ifToCase opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3) (parseSimpPos cmdArg4 cmdArg5)
-
+      -- "iftocase" -> runFunc cradle $ ifToCase opt defaultOptions cmdArg1 (parseSimpPos cmdArg2 cmdArg3) (parseSimpPos cmdArg4 cmdArg5)
+{-
       -- liftOneLevel wants FilePath -> SimpPos
       "liftOneLevel" -> runFunc cradle $ liftOneLevel opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
 
@@ -126,6 +119,9 @@ main = flip catches handlers $ do
 
       -- rename wants FilePath -> String -> SimpPos
       "rename" -> runFunc cradle $ rename opt cradle cmdArg1 cmdArg2 (parseSimpPos cmdArg3 cmdArg4)
+-}
+      -- roundtrip wants FilePath
+      "roundtrip" -> runFunc cradle $ roundTrip opt defaultOptions cmdArg1
 
       -- gendef takes a FilePath -> String -> SimpPos -> SimpPos
  --     "gendef" -> runFunc cradle $ generaliseDef opt cradle cmdArg1 cmdArg2 (parseSimpPos cmdArg3 cmdArg4) (parseSimpPos cmdArg5 cmdArg6) 

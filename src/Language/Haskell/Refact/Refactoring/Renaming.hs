@@ -1,6 +1,6 @@
 module Language.Haskell.Refact.Refactoring.Renaming(rename) where
 
--- import qualified Data.Generics.Schemes as SYB
+import qualified Data.Generics.Schemes as SYB
 import qualified Data.Generics.Aliases as SYB
 import qualified GHC.SYB.Utils         as SYB
 
@@ -14,8 +14,8 @@ import Exception
 
 import Language.Haskell.GhcMod
 import Language.Haskell.Refact.API
+import Language.Haskell.Refact.Utils.GhcVersionSpecific
 
--- import Language.Haskell.Refact.Utils.GhcVersionSpecific
 
 {-This refactoring renames an indentifier to a user-specified name.
 
@@ -46,45 +46,45 @@ modules.
 -}
 
 -- | Rename the given identifier.
-rename :: RefactSettings -> Cradle
+rename :: RefactSettings -> Options
    -> FilePath -> String -> SimpPos
    -> IO [FilePath]
-rename settings cradle fileName newName (row,col) =
-  runRefacSession settings cradle (comp fileName newName (row,col))
+rename settings opts fileName newName (row,col) =
+  runRefacSession settings opts [Left fileName] (comp fileName newName (row,col))
 
 -- | Body of the refactoring
 comp :: FilePath -> String -> SimpPos -> RefactGhc [ApplyRefacResult]
 comp fileName newName (row,col) = do
-    logm $ "Renaming.comp: (fileName,newName,(row,col))=" ++ (show (fileName,newName,(row,col)))
+    logm $ "Renaming.comp: (fileName,newName,(row,col))=" ++ show (fileName,newName,(row,col))
     getModuleGhc fileName
     renamed <- getRefactRenamed
     parsed  <- getRefactParsed
-    logm $ "comp:renamed=" ++ (SYB.showData SYB.Renamer 0 renamed) -- ++AZ++
+    logm $ "comp:renamed=" ++ SYB.showData SYB.Renamer 0 renamed -- ++AZ++
     -- logm $ "comp:parsed=" ++ (SYB.showData SYB.Parser 0 parsed) -- ++AZ++
 
     modu <- getModule
     -- let (Just (modName,_)) = getModuleName parsed
-    let modName = case (getModuleName parsed) of
+    let modName = case getModuleName parsed of
                     Just (mn,_) -> mn
                     Nothing -> GHC.mkModuleName "Main"
     let maybePn = locToName (row, col) renamed
-    logm $ "Renamed.comp:maybePn=" ++ (showGhc maybePn) -- ++AZ++
+    logm $ "Renamed.comp:maybePn=" ++ showGhc maybePn -- ++AZ++
     case maybePn of
         Just pn@(GHC.L _ n) -> do
-           logm $ "Renaming:(n,modu)=" ++ (showGhc (n,modu))
+           logm $ "Renaming:(n,modu)=" ++ showGhc (n,modu)
            -- let (GHC.L _ rdrName') = gfromJust "Renaming.comp.1" $ locToRdrName (row, col) parsed
            -- logm $ "Renaming.comp:rdrName'=" ++ (showGhc rdrName')
 
            let (GHC.L _ rdrName) = gfromJust "Renaming.comp.2" $ locToRdrName (row, col) parsed
            let rdrNameStr = GHC.occNameString $ GHC.rdrNameOcc rdrName
-           logm $ "Renaming: rdrName=" ++ (SYB.showData SYB.Parser 0 rdrName)
-           logm $ "Renaming: occname rdrName=" ++ (show $ GHC.occNameString $ GHC.rdrNameOcc rdrName)
+           logm $ "Renaming: rdrName=" ++ SYB.showData SYB.Parser 0 rdrName
+           logm $ "Renaming: occname rdrName=" ++ show (GHC.occNameString $ GHC.rdrNameOcc rdrName)
 
            unless (nameToString n /= newName) $ error "The new name is same as the old name"
            unless (isValidNewName n rdrNameStr newName) $ error $ "Invalid new name:" ++ newName ++ "!"
 
 
-           logm $ "Renaming.comp: before GHC.nameModule,n=" ++ (showGhc n)
+           logm $ "Renaming.comp: before GHC.nameModule,n=" ++ showGhc n
            -- let defineMod = GHC.moduleName $ GHC.nameModule n
 
            let defineMod = case GHC.nameModule_maybe n of
@@ -92,19 +92,19 @@ comp fileName newName (row,col) = do
                             Nothing -> modName
 
            -- TODO: why do we have this restriction?
-           unless (defineMod == modName ) ( error ("This identifier is defined in module " ++ (show defineMod) ++
+           unless (defineMod == modName ) ( error ("This identifier is defined in module " ++ show defineMod ++
                                          ", please do renaming in that module!"))
-           -- logm $ "Renaming.comp:(isMainModule modu,pn)=" ++ (showGhc (isMainModule modu,pn))
-           if isMainModule modu && (showGhc pn) == "Main.main"
-             then error ("The 'main' function defined in a 'Main' module should not be renamed!")
+           logm $ "Renaming.comp:(isMainModule modu,pn)=" ++ (showGhcQual (isMainModule modu,pn))
+           if isMainModule modu && showGhcQual pn == "Main.main"
+             then error "The 'main' function defined in a 'Main' module should not be renamed!"
              else do
                logm $ "Renaming.comp: not main module"
                newNameGhc <- mkNewGhcName (Just modu) newName
                (refactoredMod,nIsExported) <- applyRefac (doRenaming pn rdrNameStr newName newNameGhc modName) RSAlreadyLoaded
-               logm $ "Renaming:nIsExported=" ++ (show nIsExported)
+               logm $ "Renaming:nIsExported=" ++ show nIsExported
                if nIsExported  --no matter whether this pn is used or not.
                    then do clients <- clientModsAndFiles modName
-                           logm ("Renaming: clients=" ++ (showGhc clients)) -- ++AZ++ debug
+                           logm ("Renaming: clients=" ++ show clients) -- ++AZ++ debug
                            refactoredClients <- mapM (renameInClientMod n newName newNameGhc) clients
                            return $ refactoredMod:(concat refactoredClients)
                    else  return [refactoredMod]
@@ -128,10 +128,9 @@ doRenaming pn@(GHC.L _ oldn) rdrNameStr newNameStr newNameGhc modName = do
                                 -- `adhocTP` renameInStmts
                                 )) renamed
                                 -}
-  -- somewhereMStagedBu SYB.Renamer (SYB.mkM renameInMod
-  void $ everywhereMStaged SYB.Renamer (SYB.mkM renameInMod
-                                 ) renamed
-  logm $ "doRenaming done"
+  void $ SYB.everywhereM (SYB.mkM renameInMod
+                         ) renamed
+  logm "doRenaming done"
   nIsExported <- isExported oldn
   return nIsExported
    where
@@ -187,7 +186,7 @@ renameTopLevelVarName oldPN newName newNameGhc modName renamed existChecking exp
                                  logm $ "renameTopLevelVarName:oldPN=" ++ showGhc oldPN
                                  ds <- hsVisibleNames oldPN renamed
                                  logm $ "renameTopLevelVarName:ds computed=" ++ (show ds)
-                                 -- '\\[pNtoName oldPN]' handles the case in which the new name is same as the old name   
+                                 -- '\\[pNtoName oldPN]' handles the case in which the new name is same as the old name
                                  if existChecking && elem newName ((nub (ds `union` f)) \\[nameToString oldPN])
                                    then error ("Name '"++newName++"'  already existed, or rename '"
                                                 ++nameToString oldPN++ "' to '"++newName++
@@ -195,23 +194,29 @@ renameTopLevelVarName oldPN newName newNameGhc modName renamed existChecking exp
                                    else if exportChecking && isInScopeUnqual -- isInScopeAndUnqualifiedGhc newName Nothing
                                           then do
                                                logm $ "renameTopLevelVarName start..:should have qualified"
-                                               void $ renamePN oldPN newNameGhc True True renamed
+                                               parsed <- getRefactParsed
+                                               -- void $ renamePN oldPN newNameGhc True renamed
+                                               parsed' <- renamePN' oldPN newNameGhc True parsed
+                                               putRefactParsed parsed' mempty
                                                logm $ "renameTopLevelVarName done:should have qualified"
                                                -- drawTokenTreeDetailed "should be qualified" -- ++AZ++ debug
                                                r' <- getRefactRenamed
                                                return r'
                                           else do
                                                logm $ "renameTopLevelVarName start.."
-                                               void $ renamePN oldPN newNameGhc True False renamed
+                                               parsed <- getRefactParsed
+                                               -- void $ renamePN oldPN newNameGhc False renamed
+                                               parsed' <- renamePN' oldPN newNameGhc False parsed
+                                               putRefactParsed parsed' mempty
                                                logm $ "renameTopLevelVarName done"
                                                r' <- getRefactRenamed
                                                return r'
 
 
 renameInClientMod :: GHC.Name -> String -> GHC.Name -> TargetModule
- -> RefactGhc [ApplyRefacResult]
-renameInClientMod oldPN newName newNameGhc targetModule@(_,modSummary) = do
-      logm $ "renameInClientMod:(oldPN,newNameGhc,modSummary)=" ++ (showGhc (oldPN,newNameGhc,targetModule)) -- ++AZ++
+                  -> RefactGhc [ApplyRefacResult]
+renameInClientMod oldPN newName newNameGhc targetModule@(_,(_,modSummary)) = do
+      logm $ "renameInClientMod:(oldPN,newNameGhc,targetModule)=" ++ (showGhc (oldPN,newNameGhc,targetModule)) -- ++AZ++
       void $ activateModule targetModule
       {- ++AZ++ debug stuff -}
       names <- ghandle handler (GHC.parseName $ nameToString oldPN)
@@ -256,7 +261,10 @@ renameInClientMod oldPN newName newNameGhc targetModule@(_,modSummary) = do
        qualifyTopLevelVar newStr
        renamed <- getRefactRenamed
        logm $ "renameInClientMod.refactRename:renamed=" ++ (SYB.showData SYB.Renamer 0 renamed) -- ++AZ++
-       void $ renamePN old new True useQual renamed
+       parsed <- getRefactParsed
+       -- void $ renamePN old new useQual renamed
+       parsed' <- renamePN' old new useQual parsed
+       putRefactParsed parsed' mempty
        return ()
 
      refactRenameComplex :: GHC.Name -> String -> GHC.Name -> RefactGhc ()
@@ -277,11 +285,13 @@ renameInClientMod oldPN newName newNameGhc targetModule@(_,modSummary) = do
      worker oldPN' newName' newNameGhc' = do
        logm $ "renameInClientMod.worker"
        renamed <- getRefactRenamed
+       parsed <- getRefactParsed
        isInScopeUnqualNew <- isInScopeAndUnqualifiedGhc newName' Nothing
        vs <- hsVisibleNames oldPN' renamed   --Does this check names other than variable names?
-       if elem newName' ((nub vs) \\ [nameToString oldPN'])  || isInScopeUnqualNew
-         then void $ renamePN oldPN' newNameGhc' True True renamed --rename to qualified Name
-         else void $ renamePN oldPN' newNameGhc' True False renamed -- do not qualify
+       parsed' <- if elem newName' ((nub vs) \\ [nameToString oldPN'])  || isInScopeUnqualNew
+         then renamePN' oldPN' newNameGhc' True parsed --rename to qualified Name
+         else renamePN' oldPN' newNameGhc' False parsed -- do not qualify
+       putRefactParsed parsed' mempty
        return ()
 
 

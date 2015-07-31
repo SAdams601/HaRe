@@ -1,13 +1,32 @@
 flags: {}
 packages:
 - '.'
-- location: 
-    git: git@github.com:kazu-yamamoto/ghc-mod
-    commit: 4b2be9c9edbd377c3d95b6685ab53e7c5270edea
+# - test/testdata/
+# - test/testdata/cabal/cabal3/
+# - test/testdata/cabal/cabal1/
+# - test/testdata/cabal/cabal2/
+# - ../ghc-mod
+- location:
+    git: git@github.com:alanz/ghc-mod
+    commit: 526714aed7592c6d548ce38e9935bef0a984217b
+- location:
+    git: git@github.com:alanz/ghc-exactprint
+    commit: f86a73649b06dbecc22640e5e4bcb73c886c8372
+- location:
+    git: git@github.com:mpickering/refact
+    commit:  bda394c3c5f33ca6b3e9b50edd75a52800540d20
+- location:
+    git: git@github.com:mpickering/ghc-exactprint
+    commit: 0f34a6f1827e166d5f147aa0b816287a4f84885c
 extra-deps:
-- cabal-helper-0.3.6.0
 - Strafunski-StrategyLib-5.0.0.8
-- ghc-exactprint-0.2
+- cabal-helper-0.3.6.0
 - rosezipper-0.2
 - syz-0.2.0.0
-resolver: nightly-2015-06-25
+# - ghc-7.10.1.20150612
+# resolver: nightly-2015-06-16
+# resolver: nightly-2015-06-25
+# resolver: nightly-2015-07-12
+resolver: nightly-2015-07-19
+# Use system GHC, must be a 7.10.2 rc or later.
+system-ghc: true

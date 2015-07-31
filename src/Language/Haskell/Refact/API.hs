@@ -17,12 +17,14 @@ module Language.Haskell.Refact.API
        , getRefacSettings
        , defaultSettings
        , logSettings
-       , initGhcSession
+       -- , initGhcSession
 
        , loadModuleGraphGhc
        , ensureTargetLoaded
        , canonicalizeGraph
        , logm
+       , logDataWithAnns
+
  -- * from `Language.Haskell.Refact.Utils.Utils`
 
        -- ** Managing the GHC / project environment
@@ -39,7 +41,7 @@ module Language.Haskell.Refact.API
        , ApplyRefacResult
        , RefacSource(..)
 
-       , update
+       -- , update
        , fileNameToModName
        , fileNameFromModSummary
        , getModuleName
@@ -52,43 +54,55 @@ module Language.Haskell.Refact.API
        -- ** Conveniences for state access
 
        -- , fetchToksFinal
-       , fetchLinesFinal
-       , fetchOrigToks
+       -- , fetchLinesFinal
+       -- , fetchOrigToks
        , fetchToks -- Deprecated
        , getTypecheckedModule
+       , RefacResult(..)
        , getRefactStreamModified
+       , setRefactStreamModified
        , getRefactInscopes
        , getRefactRenamed
        , putRefactRenamed
        , getRefactParsed
+       , putRefactParsed
+       , addRefactAnns
+       , getRefactAnns
        , putParsedModule
        , clearParsedModule
        , getRefactFileName
+       , getRefactNameMap
+
+       -- * New ghc-exactprint interfacing
+       , replaceRdrName
+       , refactReplaceDecls
+       , refactRunTransform
+       , liftT
 
        -- ** TokenUtils API
-       , replaceToken
-       , putToksForSpan
-       , putDeclToksForSpan
+       -- , replaceToken
+       -- , putToksForSpan
+       -- , putDeclToksForSpan
        , getToksForSpan
        -- , getToksForSpanNoInv
        -- , getToksForSpanWithIntros
-       , getToksBeforeSpan
-       , putToksForPos
-       , addToksAfterSpan
-       , addToksAfterPos
-       , putDeclToksAfterSpan
-       , removeToksForSpan
-       , removeToksForPos
-       , syncDeclToLatestStash
-       , indentDeclAndToks
+       -- , getToksBeforeSpan
+       -- , putToksForPos
+       -- , addToksAfterSpan
+       -- , addToksAfterPos
+       -- , putDeclToksAfterSpan
+       -- , removeToksForSpan
+       -- , removeToksForPos
+       -- , syncDeclToLatestStash
+       -- , indentDeclAndToks
 
        -- ** LayoutUtils API
 
        -- ** For debugging
-       , drawTokenTree
-       , drawTokenTreeDetailed
-       , getTokenTree
-       , showLinesDebug
+       -- , drawTokenTree
+       -- , drawTokenTreeDetailed
+       -- , getTokenTree
+       -- , showLinesDebug
 
        -- ** State flags for managing generic traversals
        , getRefactDone
@@ -100,104 +114,104 @@ module Language.Haskell.Refact.API
 
        -- , logm
 
-       , updateToks
-       , updateToksWithPos
+       -- , updateToks
+       -- , updateToksWithPos
 
  -- * from `Language.Haskell.Refact.Utils.LocUtils`
 
-                     , SimpPos,unmodified,modified
-                     , simpPos0
-                     , nullSrcSpan
+                     , SimpPos -- ,unmodified,modified
+                     -- , simpPos0
+                     -- , nullSrcSpan
                      -- , showToks
-                     , whiteSpaceTokens
-                     , realSrcLocFromTok
-                     , isWhite
-                     , notWhite
-                     , isWhiteSpace
-                     , isWhiteSpaceOrIgnored
-                     , isIgnored
-                     , isIgnoredNonComment
+                     -- , whiteSpaceTokens
+                     -- , realSrcLocFromTok
+                     -- , isWhite
+                     -- , notWhite
+                     -- , isWhiteSpace
+                     -- , isWhiteSpaceOrIgnored
+                     -- , isIgnored
+                     -- , isIgnoredNonComment
                      {-
-                     ,isNewLn,isCommentStart -},isComment {-,
-                     isNestedComment-},isMultiLineComment {-,isOpenBracket,isCloseBracket, -}
-                     ,isOpenSquareBracket,isCloseSquareBracket {- ,isOpenBrace,isConid,
-                     isLit,isWhereOrLet,isWhere,isLet-},isIn {- ,isCase,isDo,isIf,isForall,
-                     isHiding,isModule-} ,isComma {-,isEqual,isLambda,isIrrefute -},isBar --,isMinus,
-                     ,endsWithNewLn,startsWithNewLn,hasNewLn {- ,startsWithEmptyLn,
-                     lastNonSpaceToken,firstNonSpaceToken -} ,compressPreNewLns,compressEndNewLns
+                     ,isNewLn,isCommentStart -}-- ,isComment {-,
+                     {-,isNestedComment-}{-, isMultiLineComment ,isOpenBracket,isCloseBracket, -}
+                     -- ,isOpenSquareBracket,isCloseSquareBracket {- ,isOpenBrace,isConid,
+                     {-,isLit,isWhereOrLet,isWhere,isLet-}{-,isIn  ,isCase,isDo,isIf,isForall,
+                     isHiding,isModule-} {-,isComma ,isEqual,isLambda,isIrrefute -}-- ,isBar --,isMinus,
+                     -- ,endsWithNewLn -- ,startsWithNewLn,hasNewLn {- ,startsWithEmptyLn,
+                     {-,lastNonSpaceToken,firstNonSpaceToken -} -- ,compressPreNewLns,compressEndNewLns
 
-                     , lengthOfLastLine
-                     , getToks
+                     -- , lengthOfLastLine
+                     -- , getToks
                      -- , replaceToks,replaceTok
-                     ,replaceTokNoReAlign,deleteToks,doRmWhites -- ,doAddWhites
-                     , srcLocs
-                     , getSrcSpan, getAllSrcLocs
+                     -- ,replaceTokNoReAlign,deleteToks,doRmWhites -- ,doAddWhites
+                     -- , srcLocs
+                     -- , getSrcSpan, getAllSrcLocs
                      -- , ghcSrcLocs -- Test version
                      -- , getLocatedStart
                      -- , getLocatedEnd
-                     , getBiggestStartEndLoc
+                     -- , getBiggestStartEndLoc
                      {-
                      , getStartEndLoc2,
-                     startEndLoc,extendBothSides -},extendForwards,extendBackwards
-                     , startEndLocIncFowComment{- ,startEndLocIncFowNewLn -}
-                     , startEndLocIncComments, startEndLocIncComments'
-                     , tokenise
-                     , basicTokenise
-                     , prettyprintPatList
-                     , groupTokensByLine
-                     , toksOnSameLine
-                     , addLocInfo
+                     startEndLoc,extendBothSides -} -- ,extendForwards,extendBackwards
+                     -- , startEndLocIncFowComment{- ,startEndLocIncFowNewLn -}
+                     -- , startEndLocIncComments, startEndLocIncComments'
+                     -- , tokenise
+                     -- , basicTokenise
+                     -- , prettyprintPatList
+                     --, groupTokensByLine
+                     -- , toksOnSameLine
+                     -- , addLocInfo
                      -- , getIndentOffset
-                     , getLineOffset
+                     -- , getLineOffset
                      -- , splitToks
                      -- , splitOnNewLn
                      {-
                      , insertComments,
                      extractComments, insertTerms
                      -}
-                     , tokenCol
-                     , tokenColEnd
-                     , tokenRow
-                     , tokenPos
-                     , tokenPosEnd
-                     , tokenSrcSpan
-                     , tokenCon
-                     , increaseSrcSpan
+                     -- , tokenCol
+                     -- , tokenColEnd
+                     -- , tokenRow
+                     -- , tokenPos
+                     -- , tokenPosEnd
+                     -- , tokenSrcSpan
+                     -- , tokenCon
+                     -- , increaseSrcSpan
                      , getGhcLoc
                      , getGhcLocEnd
                      , getLocatedStart
                      , getLocatedEnd
                      , getStartEndLoc
                      , startEndLocGhc
-                     , realSrcLocEndTok
+                     -- , realSrcLocEndTok
                      , fileNameFromTok
-                     , splitToks
+                     -- , splitToks
                      , emptyList, nonEmptyList
                      -- , divideComments
-                     , notWhiteSpace
-                     , isDoubleColon
-                     , isEmpty
-                     , isWhereOrLet
-                     , isWhere
-                     , isLet
-                     , isElse
-                     , isThen
-                     , isOf
-                     , isDo
-                     , getIndentOffset
-                     , splitOnNewLn
-                     , tokenLen
-                     , newLnToken
+                     -- , notWhiteSpace
+                     -- , isDoubleColon
+                     -- , isEmpty
+                     -- , isWhereOrLet
+                     -- , isWhere
+                     -- , isLet
+                     -- , isElse
+                     -- , isThen
+                     -- , isOf
+                     -- , isDo
+                     -- , getIndentOffset
+                     -- , splitOnNewLn
+                     -- , tokenLen
+                     -- , newLnToken
                      -- , newLinesToken
                      -- , monotonicLineToks
-                     , reSequenceToks
-                     , mkToken
-                     , mkZeroToken
-                     , markToken
-                     , isMarked
-                     , addOffsetToToks
-                     , matchTokenPos
-                     , rmOffsetFromToks
+                     -- , reSequenceToks
+                     -- , mkToken
+                     -- , mkZeroToken
+                     -- , markToken
+                     -- , isMarked
+                     -- , addOffsetToToks
+                     -- , matchTokenPos
+                     -- , rmOffsetFromToks
 
  -- * from `Language.Haskell.Refact.Utils.TypeSyn`
     , InScopes
@@ -222,13 +236,16 @@ module Language.Haskell.Refact.API
     ,hsPNs -- ,hsDataConstrs,hsTypeConstrsAndClasses, hsTypeVbls
     {- ,hsClassMembers -} , hsBinds, replaceBinds, HsValBinds(..)
     ,isDeclaredIn
+    ,FreeNames(..),DeclaredNames(..)
     ,hsFreeAndDeclaredPNsOld, hsFreeAndDeclaredNameStrings
+    ,hsFreeAndDeclaredRdr
     ,hsFreeAndDeclaredPNs
     ,hsFreeAndDeclaredGhc
     ,getDeclaredTypes
     ,getFvs, getFreeVars, getDeclaredVars -- These two should replace hsFreeAndDeclaredPNs
 
-    ,hsVisiblePNs {- , hsVisiblePNsOld -}, hsVisibleNames
+    ,hsVisiblePNs, hsVisiblePNsRdr  {- , hsVisiblePNsOld -}, hsVisibleNames
+    ,hsFDsFromInsideRdr
     ,hsFDsFromInside, hsFDNamesFromInside
     ,hsVisibleDs
 
@@ -236,8 +253,9 @@ module Language.Haskell.Refact.API
     ,isVarId,isConId,isOperator,isTopLevelPN,isLocalPN,isNonLibraryName -- ,isTopLevelPNT
     ,isQualifiedPN {- , isFunName, isPatName-}, isFunOrPatName {-,isTypeCon-} ,isTypeSig
     ,isFunBindP,isFunBindR,isPatBindP,isPatBindR,isSimplePatBind,hsBindLRIsSimple
-    ,isComplexPatBind,isFunOrPatBindP,isFunOrPatBindR -- ,isClassDecl,isInstDecl -- ,isDirectRecursiveDef
+    ,isComplexPatBind,isComplexPatDecl,isFunOrPatBindP,isFunOrPatBindR
     ,usedWithoutQualR {- ,canBeQualified, hasFreeVars -},isUsedInRhs
+    ,findNameInRdr
     ,findPNT,findPN,findAllNameOccurences
     ,findPNs, findEntity, findEntity'
     ,sameOccurrence
@@ -245,7 +263,7 @@ module Language.Haskell.Refact.API
     , getTypeForName
     ,defines, definesP,definesTypeSig -- , isTypeSigOf
     -- ,HasModName(hasModName), HasNameSpace(hasNameSpace)
-    ,sameBind
+    ,sameBind,sameBindRdr
     {- ,usedByRhs -},UsedByRhs(..)
 
     -- *** Modules and files
@@ -268,8 +286,8 @@ module Language.Haskell.Refact.API
     -- ,rmItemsFromExport, rmSubEntsFromExport, Delete(delete)
 
     -- *** Updating
-    -- ,Update(update)
-    {- ,qualifyPName-},rmQualifier,qualifyToplevelName,renamePN {- ,replaceNameInPN -},autoRenameLocalVar
+    ,Update(update)
+    {- ,qualifyPName-},rmQualifier,qualifyToplevelName,renamePN' {- ,replaceNameInPN -},autoRenameLocalVar
 
     -- ** Miscellous
     -- *** Parsing, writing and showing
@@ -281,10 +299,12 @@ module Language.Haskell.Refact.API
 
 
     -- *** Identifiers, expressions, patterns and declarations
-    ,ghcToPN,lghcToPN, expToName
+    ,ghcToPN,lghcToPN, expToName, expToNameRdr
+    ,patToNameRdr
     ,nameToString
     {- ,expToPNT, expToPN, nameToExp,pNtoExp -},patToPNT {- , patToPN --, nameToPat -},pNtoPat
-    {- ,definingDecls -}, definedPNs
+    {- ,definingDecls -}, definedPNs, definedPNsRdr,definedNamesRdr
+    , definingDeclsRdrNames, definingDeclsRdrNames', definingSigsRdrNames
     , definingDeclsNames, definingDeclsNames', definingSigsNames
     , definingTyClDeclsNames
     , allNames
@@ -304,7 +324,7 @@ module Language.Haskell.Refact.API
 
     -- ** Debug stuff
     , getDeclAndToks, getSigAndToks
-    , getToksForDecl, removeToksOffset -- ++AZ++ remove this after debuggging
+    -- , getToksForDecl, removeToksOffset -- ++AZ++ remove this after debuggging
     , getParsedForRenamedLPat
     , getParsedForRenamedName
     , getParsedForRenamedLocated
@@ -316,12 +336,6 @@ module Language.Haskell.Refact.API
 
  -- ** from `Language.Haskell.Refact.Utils.GhcUtils`
     -- ** SYB versions
-    , everythingButStaged
-    , somethingStaged
-    , everythingStaged
-    , somewhereMStaged
-    , somewhereMStagedBu
-    , everywhereMStaged
     , everywhereMStaged'
     , everywhereStaged
     , everywhereStaged'
@@ -329,21 +343,21 @@ module Language.Haskell.Refact.API
     , listifyStaged
 
     -- *** SYB Utility
-    , checkItemRenamer
+    -- , checkItemRenamer
 
     -- ** Strafunski StrategyLib versions
-    , full_tdTUGhc
-    , stop_tdTUGhc
-    , stop_tdTPGhc
-    , allTUGhc'
-    , once_tdTPGhc
-    , once_buTPGhc
-    , oneTPGhc
-    , allTUGhc
+    -- , full_tdTUGhc
+    -- , stop_tdTUGhc
+    -- , stop_tdTPGhc
+    -- , allTUGhc'
+    -- , once_tdTPGhc
+    -- , once_buTPGhc
+    -- , oneTPGhc
+    -- , allTUGhc
 
     -- *** Strafunski utility
-    , checkItemStage'
-    , checkItemRenamer'
+    -- , checkItemStage'
+    -- , checkItemRenamer'
 
     -- ** Scrap Your Zipper versions
     , zeverywhereStaged
@@ -354,7 +368,7 @@ module Language.Haskell.Refact.API
     , zopenStaged'
     , ztransformStagedM
     -- *** SYZ utilities
-    , checkZipperStaged
+    -- , checkZipperStaged
     , upUntil
     , findAbove
 
@@ -363,18 +377,22 @@ module Language.Haskell.Refact.API
   , prettyprint
   , prettyprint2
   , ppType
-  , lexStringToTokens
-  , getDataConstructors
+  -- , lexStringToTokens
+  -- , getDataConstructors
   , setGhcContext
 
  -- * from `Language.Haskell.Refact.Utils.TokenUtils`
- , Positioning(..)
- , reIndentToks
- , ghcSrcSpanToForestSpan
+  , Positioning(..)
+  , NameMap
+ -- , reIndentToks
+ -- , ghcSrcSpanToForestSpan
 
  -- * Span conversion functions
- , gs2f,f2gs
- , gs2ss,ss2gs
+ -- , gs2f,f2gs
+ -- , gs2ss,ss2gs
+
+ -- * from `Language.Haskell.Refact.Utils.ExactPrint`
+ , resequenceAnnotations
  ) where
 
 import Language.Haskell.Refact.Utils.Binds
@@ -383,14 +401,12 @@ import Language.Haskell.Refact.Utils.GhcVersionSpecific
 import Language.Haskell.Refact.Utils.LocUtils
 import Language.Haskell.Refact.Utils.Monad
 import Language.Haskell.Refact.Utils.MonadFunctions
-import Language.Haskell.Refact.Utils.TokenUtils
+import Language.Haskell.Refact.Utils.ExactPrint
 import Language.Haskell.Refact.Utils.TypeSyn
 import Language.Haskell.Refact.Utils.TypeUtils
 import Language.Haskell.Refact.Utils.Utils
+import Language.Haskell.Refact.Utils.Types
+import Language.Haskell.Refact.Utils.Variables
 
-{-
-import Language.Haskell.TokenUtils.Types
-import Language.Haskell.TokenUtils.TokenUtils
-import Language.Haskell.TokenUtils.Utils
-import Language.Haskell.TokenUtils.GHC.Layout
--}
+import Language.Haskell.GHC.ExactPrint.Utils
+
