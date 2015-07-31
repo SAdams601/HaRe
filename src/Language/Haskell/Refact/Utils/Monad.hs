@@ -54,7 +54,7 @@ import Distribution.Helper
 import Exception
 import qualified Language.Haskell.GhcMod          as GM
 import qualified Language.Haskell.GhcMod.Internal as GM
-import Language.Haskell.GhcMod.Internal hiding (MonadIO,liftIO)
+import           Language.Haskell.GhcMod.Internal hiding (MonadIO,liftIO)
 import Language.Haskell.Refact.Utils.Types
 import Language.Haskell.GHC.ExactPrint
 import Language.Haskell.GHC.ExactPrint.Types
@@ -288,10 +288,30 @@ loadModuleGraphGhc maybeTargetFiles = do
           setModeSimple >>> setEmptyLogger >>> setDynFlags
       ----------------------------------
 
-      loadTarget targetFiles
+      css <- cabalComponentSets
+      let css' = fmap toComponentFpSets css
+          toComponentFpSets cs = Set.fromList $ map mpPath $ Set.toList cs
+-- data ModulePath
+--   = ModulePath {mpModule :: GHC.ModuleName, mpPath :: FilePath}
+--   	-- Defined in ‘ghc-mod-0:Language.Haskell.GhcMod.Types’
+      logm $ "loadModuleGraphGhc:(css,css')=" ++  show (css,css')
+
+      targetFilesAbsolute <- liftIO $ mapM canonicalizePath targetFiles
+      -- check for targetFiles in each css, and expand the targets to the whole
+      -- set if there is any hit.
+      let fullTargets = foldl inTarget Set.empty css'
+          inTarget acc new =
+            if any (\tf -> tf `elem` new) targetFilesAbsolute
+              then Set.union acc new
+              else acc
+      logm $ "loadModuleGraphGhc:fullTargets=" ++  showGhc fullTargets
+
+      -- loadTarget targetFiles
+      loadTarget (Set.toList fullTargets)
 
       graph <- GHC.getModuleGraph
       cgraph <- canonicalizeGraph graph
+      logm $ "loadModuleGraphGhc:(maybeTargetFiles,graph)=" ++  showGhc (maybeTargetFiles,graph)
 
       let canonMaybe filepath = ghandle handler (canonicalizePath filepath)
             where
@@ -307,12 +327,36 @@ loadModuleGraphGhc maybeTargetFiles = do
                      , rsCurrentTarget = maybeTargetFiles
                      }
 
-      -- logm $ "loadModuleGraphGhc:cgraph=" ++ show (map fst cgraph)
-      -- logm $ "loadModuleGraphGhc:cgraph=" ++ showGhc graph
+      logm $ "loadModuleGraphGhc:cgraph=" ++ show (map fst cgraph)
+      logm $ "loadModuleGraphGhc:cgraph=" ++ showGhc graph
 
       return ()
     Nothing -> return ()
   return ()
+
+-- ---------------------------------------------------------------------
+
+cabalComponentSets :: RefactGhc [Set.Set ModulePath]
+cabalComponentSets = do
+  mgs <- cabalModuleGraphs
+  logm $ "cabalComponentSets:mgs=" ++ show mgs
+  let
+    toSet (k,v) = Set.insert k v
+    flatten (GM.GmModuleGraph mg) = foldl Set.union Set.empty $ map toSet (Map.toList mg)
+  return $ map flatten mgs
+
+-- ---------------------------------------------------------------------
+
+cabalModuleGraphs :: RefactGhc [GM.GmModuleGraph]
+cabalModuleGraphs = RefactGhc (GM.GmlT doCabalModuleGraphs)
+  where
+    doCabalModuleGraphs = do
+      crdl@(GM.Cradle{..}) <- GM.cradle
+
+      comps <- mapM (GM.resolveEntrypoint crdl) =<< GM.getComponents
+      mcs <- GM.cached cradleRootDir GM.resolvedComponentsCache comps
+      let graph = map GM.gmcHomeModuleGraph $ Map.elems mcs
+      return $ graph
 
 -- ---------------------------------------------------------------------
 
@@ -325,19 +369,11 @@ getTargetGhcOptions crdl mfns
   = RefactGhc (GmlT $ targetGhcOptions crdl mfns)
 
 -- ---------------------------------------------------------------------
+
+-- |Hand the loading of targets over to ghc-mod
 loadTarget :: [FilePath] -> RefactGhc ()
 loadTarget targetFiles = RefactGhc (loadTargets targetFiles)
-{-
-loadTarget :: [FilePath] -> RefactGhc ()
-loadTarget targetFiles = do
-  let
-    guessOne :: FilePath -> RefactGhc GHC.Target
-    guessOne f = GHC.guessTarget f Nothing
-  targets <- mapM guessOne targetFiles
-  -- ++AZ++: Use ghc-mod loading process here?
-  GHC.setTargets targets
-  void $ GHC.load GHC.LoadAllTargets
--}
+
 -- ---------------------------------------------------------------------
 
 -- | Make sure the given file is the currently loaded target, and load
@@ -348,7 +384,9 @@ ensureTargetLoaded (target,(_,modSum)) = do
   settings <- get
   let currentTarget = rsCurrentTarget settings
   if currentTarget == Just target
-    then return modSum
+    then do
+      logm $ "ensureTargetLoaded: not loading:" ++ show target
+      return modSum
     else do
       logm $ "ensureTargetLoaded: loading:" ++ show target
       loadTarget target
