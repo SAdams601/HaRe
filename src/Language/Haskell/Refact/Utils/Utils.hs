@@ -215,10 +215,10 @@ getModuleDetails modSum = do
 
   mtm <- gets rsModule
   case mtm of
-    Just tm -> if ((rsStreamModified tm == RefacUnmodifed)
+    Just tm -> if ((rsStreamModified tm == RefacUnmodified)
                   && True)
                  then return ()
-                 else if rsStreamModified tm == RefacUnmodifed
+                 else if rsStreamModified tm == RefacUnmodified
                         then putParsedModule t
                         else error $ "getModuleDetails: trying to load a module without finishing with active one."
 

@@ -48,7 +48,7 @@ comp fileName newName (row, col) = do
             do
               (refactoredMod@((_fp,ismod),(anns',renamed')),_) <- applyRefac (doDuplicating pn newName) (RSFile fileName)
               case (ismod) of
-                RefacUnmodifed-> error "The selected identifier is not a function/simple pattern name, or is not defined in this module "
+                RefacUnmodified-> error "The selected identifier is not a function/simple pattern name, or is not defined in this module "
                 RefacModified -> return ()
 
               if modIsExported modName renamed
@@ -211,7 +211,7 @@ refactorInClientMod oldPN serverModName newPName targetModule@(_,(_,modSummary))
                 -- refactoredMod <- applyRefac (doDuplicatingClient serverModName [newPName]) (Just modInfo) fileName
                 (refactoredMod,_) <- applyRefac (doDuplicatingClient serverModName [newPName]) (RSFile fileName)
                 return refactoredMod
-        else return ((fileName,RefacUnmodifed),(emptyAnns,parsed))
+        else return ((fileName,RefacUnmodified),(emptyAnns,parsed))
    where
      needToBeHided :: GHC.Name -> GHC.RenamedSource -> GHC.ParsedSource -> RefactGhc Bool
      needToBeHided name exps parsed = do
