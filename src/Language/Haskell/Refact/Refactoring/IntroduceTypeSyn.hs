@@ -22,6 +22,7 @@ import Language.Haskell.GhcMod
 import Language.Haskell.GHC.ExactPrint.Types
 import Language.Haskell.GHC.ExactPrint
 import Language.Haskell.GHC.ExactPrint.Parsers
+import qualified Data.Map as Map
 
 introduceTypeSyn :: RefactSettings -> Cradle -> FilePath -> SimpPos -> String -> String -> IO [FilePath]
 introduceTypeSyn settings cradle fileName (row,col) newName typeRep=
@@ -52,16 +53,23 @@ addSyn pos@(row, col) newName typeRep fileName = do
       parsedMod <- GHC.parseModule newSum
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
       Right (anns, mod) <- liftIO $ parseModule fileName
-      addTyDecl pos fullStr anns mod
-      error "Update to work with exactprint"
+      (tyAs, tyMod) <- addTyDecl pos fullStr anns mod
+      error $ "Intro decl Result=======\n" ++ (exactPrintWithAnns tyMod tyAs)
+      return ()
       
 type Module = GHC.Located (GHC.HsModule GHC.RdrName)
 
 addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module)
 addTyDecl pos tyDecl anns (GHC.L l mod) = do
-  Right res@(sigAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d "template" tyDecl)
-  
-  error $ "sigAnns====== \n" ++ (show sigAnns) ++ "\nTypeDec pretty print:\n" ++ (SYB.showData SYB.Parser 2  tydec)
+  Right res@(decAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d (modNameFromMaybe $ GHC.hsmodName mod) tyDecl)
+  let newAs = Map.union anns decAnns
+      finalAnns = newAs
+      finalMod = mod { GHC.hsmodDecls = (tydec:(GHC.hsmodDecls mod)) }
+  return (finalAnns, GHC.L l finalMod)
+
+modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
+modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
+modNameFromMaybe Nothing = "template"
     {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
