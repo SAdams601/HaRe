@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Language.Haskell.Refact.Refactoring.IntroduceTypeSyn where
 
 import qualified Data.Generics as SYB
@@ -60,13 +60,22 @@ addSyn pos@(row, col) newName typeRep fileName = do
 type Module = GHC.Located (GHC.HsModule GHC.RdrName)
 
 addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module)
-addTyDecl pos tyDecl anns (GHC.L l mod) = do
+addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
   Right res@(decAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d (modNameFromMaybe $ GHC.hsmodName mod) tyDecl)
-  let newAs = Map.union anns decAnns
-      finalAnns = newAs
+  --error $ SYB.showData SYB.Parser 2 (GHC.hsmodDecls mod)
+  let
+      newAs = Map.union anns decAnns
+      (before, (post:after)) = break findInsertPoint (GHC.hsmodDecls mod)
+      Just Ann{annEntryDelta} = Map.lookup (mkAnnKey post) newAs
+      finalAnns = Map.adjust (\decAnn -> decAnn { annEntryDelta = annEntryDelta }) (mkAnnKey tydec)
+                . Map.adjust (\postAnn -> postAnn { annEntryDelta = DP (2, 0) }) (mkAnnKey post) $ newAs
       finalMod = mod { GHC.hsmodDecls = (tydec:(GHC.hsmodDecls mod)) }
   return (finalAnns, GHC.L l finalMod)
-
+  where findInsertPoint (GHC.L l _)
+          | newLoc <= (GHC.srcSpanStart l) = True
+          | otherwise = False
+        newLoc = GHC.mkSrcLoc (mkFastString "") row col
+           
 modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
 modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
 modNameFromMaybe Nothing = "template"
