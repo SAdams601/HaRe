@@ -35,13 +35,9 @@ module Language.Haskell.Refact.Utils.Utils
 import Control.Monad.State
 import Data.List
 import Data.Maybe
-
 import Language.Haskell.GHC.ExactPrint
 import Language.Haskell.GHC.ExactPrint.Utils
-
 import Language.Haskell.GhcMod
-import qualified Language.Haskell.GhcMod.Internal as GM
-
 import Language.Haskell.Refact.Utils.GhcModuleGraph
 import Language.Haskell.Refact.Utils.GhcVersionSpecific
 import Language.Haskell.Refact.Utils.Monad
@@ -57,8 +53,6 @@ import qualified GHC           as GHC
 
 import qualified GHC.SYB.Utils as SYB
 import qualified Outputable    as GHC
-
-import qualified Data.Map      as Map
 
 -- import Debug.Trace
 
@@ -77,7 +71,7 @@ fileNameToModName fileName = do
 getModuleMaybe :: FilePath -> RefactGhc (Maybe GHC.ModSummary)
 getModuleMaybe fileName = do
   cfileName <- liftIO $ canonicalizePath fileName
-  logm $ "getModuleMaybe for (fileName,cfileName):" ++ show (fileName,cfileName)
+  -- logm $ "getModuleMaybe for (fileName,cfileName):" ++ show (fileName,cfileName)
 
   graphs <- gets rsGraph
   currentTgt <- gets rsCurrentTarget
@@ -139,20 +133,18 @@ identifyTargetModule targetFile = do
   currentDirectory <- liftIO getCurrentDirectory
   target1 <- liftIO $ canonicalizePath targetFile
   target2 <- liftIO $ canonicalizePath (combine currentDirectory targetFile)
-  logm $ "identifyTargetModule:(targetFile,target1,target2)=" ++ show (targetFile,target1,target2)
+  -- logm $ "identifyTargetModule:(targetFile,target1,target2)=" ++ show (targetFile,target1,target2)
   -- graphs <- gets rsModuleGraph
   graphs <- gets rsGraph
   -- let graphs = concatMap (\(_,cg) -> cg) cgraphs
 
-  logm $ "identifyTargetModule:graphs=" ++ show graphs
+  -- logm $ "identifyTargetModule:graphs=" ++ show graphs
 
   let ff = catMaybes $ map (findInTarget target1 target2) graphs
-  logm $ "identifyTargetModule:ff=" ++ show ff
+  -- logm $ "identifyTargetModule:ff=" ++ show ff
   case ff of
     [] -> return Nothing
     ms -> return (Just (ghead ("identifyTargetModule:" ++ (show ms)) ms))
-
--- ---------------------------------------------------------------------
 
 findInTarget :: FilePath -> FilePath -> ([FilePath],[(Maybe FilePath,GHC.ModSummary)])
              -> Maybe TargetModule
@@ -190,8 +182,8 @@ findInTarget f1 f2 (fps,graph) = r'
 -- target is the currently loaded one
 
 activateModule :: TargetModule -> RefactGhc GHC.ModSummary
-activateModule tm@(target, (mfp,modSum)) = do
-  logm $ "activateModule:" ++ show (target,mfp,GHC.ms_mod modSum)
+activateModule tm@(target, (_,modSum)) = do
+  logm $ "activateModule:" ++ show (target,GHC.ms_mod modSum)
   newModSum <- ensureTargetLoaded tm
   getModuleDetails newModSum
   return newModSum
@@ -210,7 +202,7 @@ getModuleDetails modSum = do
   t <- GHC.typecheckModule p
 
   logm $ "getModuleDetails:setting context.."
-  -- setGhcContext modSum
+  setGhcContext modSum
   logm $ "getModuleDetails:context set"
 
   mtm <- gets rsModule
@@ -237,11 +229,9 @@ parseSourceFileGhc targetFile = do
       GHC.setTargets [target]
       void $ GHC.load GHC.LoadAllTargets -- Loads and compiles, much as calling ghc --make
      -}
-      currentDir <- liftIO getCurrentDirectory
-      logm $ "parseSourceFileGhc:currentDir=" ++ currentDir
-      logm $ "parseSourceFileGhc:about to loadModuleGraphGhc for" ++ (show targetFile)
+      -- logm $ "parseSourceFileGhc:about to loadModuleGraphGhc for" ++ (show targetFile)
       loadModuleGraphGhc (Just [targetFile])
-      logm $ "parseSourceFileGhc:loadModuleGraphGhc done"
+      -- logm $ "parseSourceFileGhc:loadModuleGraphGhc done"
 
       mm <- getModuleMaybe targetFile
       case mm of
@@ -342,13 +332,13 @@ refactDone rs = any (\((_,d),_) -> d == RefacModified) rs
 modifiedFiles :: [ApplyRefacResult] -> [String]
 modifiedFiles refactResult = map (\((s,_),_) -> s)
                            $ filter (\((_,b),_) -> b == RefacModified) refactResult
-
 -- ---------------------------------------------------------------------
 
 -- | Initialise the GHC session, when starting a refactoring.
 --   This should never be called directly.
 initGhcSession :: Targets -> RefactGhc ()
 initGhcSession tgts = do
+    logm $ "initGhcSession:entered with tgts:" ++ show tgts
     {-
     settings <- getRefacSettings
     df <- GHC.getSessionDynFlags
@@ -561,7 +551,8 @@ writeRefactoredFiles verbosity files
 -- import module m.
 
 -- TODO: deal with an anonymous main module, by taking Maybe GHC.ModuleName
-clientModsAndFiles :: GHC.ModuleName -> RefactGhc [TargetModule]
+clientModsAndFiles
+  :: GHC.ModuleName -> RefactGhc [TargetModule]
 clientModsAndFiles m = do
   modsum <- GHC.getModSummary m
 
