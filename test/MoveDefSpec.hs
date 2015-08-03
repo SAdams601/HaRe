@@ -19,10 +19,12 @@ spec = do
   -- -------------------------------------------------------------------
 
   describe "liftToTopLevel" $ do
-    it "Cannot lift a top level declaration" $ do
-     -- res <- catchException (doLiftToTopLevel ["./test/testdata/MoveDef/Md1.hs","4","1"])
-     res <- catchException (liftToTopLevel defaultTestSettings testOptions "./test/testdata/MoveDef/Md1.hs" (4,1))
+    it "cannot lift a top level declaration" $ do
+     -- res <- catchException (liftToTopLevel logTestSettings testOptions "./test/testdata/MoveDef/Md1.hs" (4,1))
+     res <- catchException (ct $ liftToTopLevel defaultTestSettings testOptions "./MoveDef/Md1.hs" (4,1))
      (show res) `shouldBe` "Just \"\\nThe identifier is not a local function/pattern name!\""
+
+    -- ---------------------------------
 
     it "checks for name clashes" $ do
      -- res <- catchException (doLiftToTopLevel ["./test/testdata/MoveDef/Md1.hs","17","5"])
@@ -52,9 +54,11 @@ spec = do
     -- ---------------------------------
 
     it "liftToTopLevel D1 C1 A1 8 6" $ do
-     r <- liftToTopLevel (testSettingsMainfile "./test/testdata/LiftToToplevel/A1.hs") testOptions "./test/testdata/LiftToToplevel/D1.hs" (8,6)
-     -- r <- liftToTopLevel logTestSettings testOptions (Just "./test/testdata/LiftToToplevel/A1.hs") "./test/testdata/LiftToToplevel/D1.hs" (8,6)
-     (show r) `shouldBe` "[\"./test/testdata/LiftToToplevel/D1.hs\",\"./test/testdata/LiftToToplevel/C1.hs\"]"
+     -- r <- ct $ liftToTopLevel (testSettingsMainfile "./test/testdata/LiftToToplevel/A1.hs") testOptions "./LiftToToplevel/D1.hs" (8,6)
+     -- r <- ct $ liftToTopLevel defaultTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
+     r <- ct $ liftToTopLevel logTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
+     r' <- ct $ mapM makeRelativeToCurrentDirectory r
+     (show r') `shouldBe` "[\"./LiftToToplevel/D1.hs\",\"LiftToToplevel/C1.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/D1.hs.expected"
                           "./test/testdata/LiftToToplevel/D1.refactored.hs"
      diff `shouldBe` []

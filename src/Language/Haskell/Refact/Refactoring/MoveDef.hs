@@ -14,7 +14,6 @@ module Language.Haskell.Refact.Refactoring.MoveDef
 import qualified Data.Generics as SYB
 import qualified GHC.SYB.Utils as SYB
 
--- import qualified DynFlags      as GHC
 import qualified Exception             as GHC
 import qualified FastString            as GHC
 import qualified GHC                   as GHC
@@ -96,9 +95,8 @@ compLiftToTopLevel fileName (row,col) = do
       let (Just (modName,_)) = getModuleName parsed
       let maybePn = locToName (row, col) renamed
       case maybePn of
-        Just pn ->  do
-            liftToTopLevel' modName pn
-        _       ->  error "\nInvalid cursor position!\n"
+        Just pn -> liftToTopLevel' modName pn
+        _       -> error "\nInvalid cursor position!\n"
 
 -}
 -- ---------------------------------------------------------------------
@@ -229,6 +227,7 @@ liftToTopLevel' :: GHC.ModuleName -- -> (ParseResult,[PosToken]) -> FilePath
                 -> RefactGhc [ApplyRefacResult]
 liftToTopLevel' modName pn@(GHC.L _ n) = do
   renamed <- getRefactRenamed
+  targetModule <- getRefactTargetModule
   -- logm $ "liftToTopLevel':renamed=" ++ (SYB.showData SYB.Renamer 0 renamed) -- ++AZ++
   logm $ "liftToTopLevel':pn=" ++ (showGhc pn)
   if isLocalFunOrPatName n renamed
@@ -239,7 +238,7 @@ liftToTopLevel' modName pn@(GHC.L _ n) = do
               -- logm $ "liftToTopLevel' applyRefac done:toks= " ++ (show (fst $ snd refactoredMod))
 
               if modIsExported modName renamed
-               then do clients <- clientModsAndFiles modName
+               then do clients <- clientModsAndFiles targetModule
                        logm $ "liftToTopLevel':(clients,declPns)=" ++ (showGhc (clients,declPns))
                        refactoredClients <- mapM (liftingInClientMod modName declPns) clients
                        return (refactoredMod:(concat refactoredClients))
@@ -294,9 +293,12 @@ liftToTopLevel' modName pn@(GHC.L _ n) = do
            then do
              -- TODO: change the order, first move the decls then add params,
              --       else the liftedDecls get mangled while still in the parent
+             logm $ "liftToMod:(pns == [])"
              (parent',liftedDecls',_mLiftedSigs') <- addParamsToParentAndLiftedDecl n dd parent liftedDecls mLiftedSigs
              -- let liftedDecls''=if paramAdded then filter isFunOrPatBindR liftedDecls'
              --                                 else liftedDecls'
+
+             logm $ "liftToMod:(ffff)="
 
              -- drawTokenTree "liftToMod.c"
              -- logm $ "liftToMod:(declaredPns)=" ++ (showGhc declaredPns)
@@ -305,10 +307,10 @@ liftToTopLevel' modName pn@(GHC.L _ n) = do
              let -- renamed' = replaceBinds renamed (before++parent'++after)
                  -- defName  = (ghead "liftToMod" (definedPNs (ghead "liftToMod2" parent')))
                  defName  = (ghead "liftToMod" (definedNamesRdr nameMap (ghead "liftToMod2" parent')))
+             logm $ "liftToMod:(defName)=" ++ (showGhc defName)
              parsed' <- liftT $ replaceDecls parsed (before++parent'++after)
-             void $ moveDecl1 parsed'
-                    (Just defName)
-                    [GHC.unLoc pn] (Just liftedDecls') declaredPns True
+             parsed2 <- moveDecl1 parsed' (Just defName) [GHC.unLoc pn] (Just liftedDecls') declaredPns True
+             putRefactParsed parsed2 emptyAnns
 
              return declaredPns
 
@@ -318,7 +320,7 @@ liftToTopLevel' modName pn@(GHC.L _ n) = do
 
 -- ---------------------------------------------------------------------
 
-moveDecl1 :: (HasDecls t)
+moveDecl1 :: (HasDecls t,SYB.Data t)
   => t -- ^ The syntax element to update
   -> Maybe GHC.Name -- ^ If specified, add defn after this one
 
@@ -331,6 +333,8 @@ moveDecl1 :: (HasDecls t)
   -> Bool           -- ^ True if moving to the top level
   -> RefactGhc t    -- ^ The updated syntax element (and tokens in monad)
 moveDecl1 t defName ns mliftedDecls sigNames topLevel = do
+  -- logm $ "moveDecl1:(defName,ns,sigNames,mliftedDecls)=" ++ showGhc (defName,ns,sigNames,mliftedDecls)
+  -- logm $ "moveDecl1:(topLevel,t)=" ++ SYB.showData SYB.Parser 0 (topLevel,t)
   nameMap <- getRefactNameMap
 
   -- TODO: work with all of ns, not just the first
@@ -339,12 +343,15 @@ moveDecl1 t defName ns mliftedDecls sigNames topLevel = do
         Nothing          -> definingDeclsRdrNames' nameMap [n] t
         Just liftedDecls -> liftedDecls
 
+  -- logm $ "moveDecl1:(funBinding)=" ++ showGhc (funBinding)
   -- TODO: rmDecl can now remove the sig at the same time.
   (t'',sigsRemoved) <- rmTypeSigs sigNames t
   (t',_declRemoved,_sigRemoved) <- rmDecl (ghead "moveDecl3.1"  ns) False t''
+  -- logDataWithAnns "moveDecl1:(t')" t'
 
   r <- addDecl t' defName (ghead "moveDecl1 2" funBinding,listToMaybe sigsRemoved,Nothing) topLevel
 
+  -- logm $ "moveDecl1:(r)=" ++ SYB.showData SYB.Parser 0 r
   return r
 
 
@@ -400,11 +407,15 @@ addParamsToParent  pn params t = do
 -- client module.
 liftingInClientMod :: GHC.ModuleName -> [GHC.Name] -> TargetModule
   -> RefactGhc [ApplyRefacResult]
-liftingInClientMod serverModName pns targetModule@(_,(_,modSummary)) = do
-       void $ activateModule targetModule
+liftingInClientMod serverModName pns targetModule = do
+       logm $ "liftingInClientMod:targetModule=" ++ (show targetModule)
+       -- void $ activateModule targetModule
+       getTargetGhc targetModule
        renamed <- getRefactRenamed
+       parsed <- getRefactParsed
        -- logm $ "liftingInClientMod:renamed=" ++ (SYB.showData SYB.Renamer 0 renamed) -- ++AZ++
-       let clientModule = GHC.ms_mod modSummary
+       -- let clientModule = GHC.ms_mod modSummary
+       clientModule <- getRefactModule
        logm $ "liftingInClientMod:clientModule=" ++ (showGhc clientModule)
   -- = do (inscps, exps ,mod ,ts) <- parseSourceFile fileName
        -- let modNames = willBeUnQualImportedBy serverModName mod
@@ -413,11 +424,12 @@ liftingInClientMod serverModName pns targetModule@(_,(_,modSummary)) = do
        if isJust modNames
         then do
              pns' <- namesNeedToBeHided clientModule (gfromJust "liftingInClientMod" modNames) pns
+             let pnsRdr' = map GHC.nameRdrName pns'
              logm $ "liftingInClientMod:pns'=" ++ (showGhc pns')
              -- in if pns' /= []
              if (nonEmptyList pns')
                  -- then do <-runStateT (addHiding serverModName mod pns') ((ts,unmodified),(-1000,0))
-                 then do (refactoredMod,_) <- applyRefac (addHiding serverModName renamed pns') RSAlreadyLoaded
+                 then do (refactoredMod,_) <- applyRefac (addHiding serverModName parsed pnsRdr') RSAlreadyLoaded
                          return [refactoredMod]
                  else return []
         else return []
@@ -608,12 +620,13 @@ liftOneLevel' modName pn@(GHC.L _ n) = do
   renamed <- getRefactRenamed
   parsed <- getRefactParsed
   nm <- getRefactNameMap
+  targetModule <- getRefactTargetModule
   if isLocalFunOrPatName n renamed
         then do
                 (refactoredMod,_) <- applyRefac doLiftOneLevel RSAlreadyLoaded
                 (b, pns) <- liftedToTopLevel pn parsed
                 if b &&  modIsExported modName renamed
-                  then do clients<-clientModsAndFiles modName
+                  then do clients<-clientModsAndFiles targetModule
                           -- logm $ "liftOneLevel':(clients,declPns)=" ++ (showGhc (clients,declPns))
                           refactoredClients <- mapM (liftingInClientMod modName pns) clients
                           return (refactoredMod:(concat refactoredClients))
@@ -1149,10 +1162,13 @@ addParamsToParentAndLiftedDecl :: (GHC.Outputable t,SYB.Data t) =>
   -> Maybe (GHC.LSig GHC.RdrName) -- ^ lifted decls signature if present
   -> RefactGhc (t, [GHC.LHsDecl GHC.RdrName], Maybe (GHC.LSig GHC.RdrName))
 addParamsToParentAndLiftedDecl pn dd parent liftedDecls mLiftedSigs
-  =do  (ef,_) <- hsFreeAndDeclaredPNs parent
-       (lf,_) <- hsFreeAndDeclaredPNs liftedDecls
+  =do
+       logm $ "addParamsToParentAndLiftedDecl:parent=" ++ (showGhc parent)
+       nm <- getRefactNameMap
+       let (FN ef,_) = hsFreeAndDeclaredRdr nm parent
+       let (FN lf,_) = hsFreeAndDeclaredRdr nm liftedDecls
 
-       -- logm $ "addParamsToParentAndLiftedDecl:parent=" ++ (showGhc parent)
+       logm $ "addParamsToParentAndLiftedDecl:(ef,lf)=" ++ showGhc (ef,lf)
 
        -- parameters to be added to pn because of lifting
        let newParamsNames = ((nub lf) \\ (nub ef)) \\ dd
@@ -1498,6 +1514,7 @@ demote' ::
   -> RefactGhc [ApplyRefacResult]
 demote' modName (GHC.L _ pn) = do
   renamed <- getRefactRenamed
+  targetModule <- getRefactTargetModule
   if isFunOrPatName pn renamed
     then do
        isTl <- isTopLevelPN pn
@@ -1509,7 +1526,7 @@ demote' modName (GHC.L _ pn) = do
                   if isTl && modIsExported modName renamed
                     then do let demotedDecls'= definingDeclsNames [pn] (hsBinds renamed) True False
                                 declaredPns  = nub $ concatMap definedPNs demotedDecls'
-                            clients <- clientModsAndFiles modName
+                            clients <- clientModsAndFiles targetModule
                             logm $ "demote':clients=" ++ (showGhc clients)
                             refactoredClients <-mapM (demotingInClientMod declaredPns) clients
                             -- return (refactoredMod:[])
@@ -1525,9 +1542,11 @@ demote' modName (GHC.L _ pn) = do
 demotingInClientMod ::
   [GHC.Name] -> TargetModule
   -> RefactGhc ApplyRefacResult
-demotingInClientMod pns targetModule@(_,(_,modSummary)) = do
-  void $ activateModule targetModule
-  (refactoredMod,_) <- applyRefac (doDemotingInClientMod pns (GHC.ms_mod modSummary)) RSAlreadyLoaded
+demotingInClientMod pns targetModule = do
+  -- void $ activateModule targetModule
+  getTargetGhc targetModule
+  modu <- getRefactModule
+  (refactoredMod,_) <- applyRefac (doDemotingInClientMod pns modu) RSAlreadyLoaded
   return refactoredMod
 
 

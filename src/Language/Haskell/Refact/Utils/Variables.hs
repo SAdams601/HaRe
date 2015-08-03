@@ -603,6 +603,12 @@ hsFreeAndDeclaredGhc t = do
       let tds = concatMap getDeclaredTypes $ concatMap GHC.group_tyclds (GHC.hs_tyclds g)
       return $ gfds <> (FN [],DN tds)
 
+    -- -----------------------
+
+    lhsdecls :: [GHC.LHsDecl GHC.Name] -> RefactGhc (FreeNames,DeclaredNames)
+    lhsdecls ds = recurseList ds
+
+    -- -----------------------
 
     lhsbinds :: [GHC.LHsBind GHC.Name] -> RefactGhc (FreeNames,DeclaredNames)
     lhsbinds bs = do
@@ -1863,7 +1869,7 @@ hsVisibleDs :: (FindEntity e, GHC.Outputable e
                ,SYB.Data t,HsValBinds t GHC.Name)
              => e -> t -> RefactGhc DeclaredNames
 hsVisibleDs e t = do
-  logm $ "hsVisibleDs:(e,t)=" ++ (SYB.showData SYB.Renamer 0 (e,t))
+  -- logm $ "hsVisibleDs:(e,t)=" ++ (SYB.showData SYB.Renamer 0 (e,t))
   (DN d) <- res
   return (DN (nub d))
   where
