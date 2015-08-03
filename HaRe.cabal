@@ -48,12 +48,11 @@ Library
                                 -- , dual-tree
                                 , semigroups
                                 , monoid-extras
-
                                 , cabal-helper
                                 , filepath
                                 , ghc
                                 , ghc-paths
-                                , ghc-prim
+                                , ghc-prim  
                                 , ghc-syb-utils
                                 , ghc-mod == 0
                                 , mtl
@@ -85,6 +84,8 @@ Library
            , Language.Haskell.Refact.Refactoring.Renaming
            , Language.Haskell.Refact.Refactoring.RoundTrip
            , Language.Haskell.Refact.Refactoring.SwapArgs
+           , Language.Haskell.Refact.Refactoring.DeleteDef
+           , Language.Haskell.Refact.Refactoring.IntroduceTypeSyn
            , Language.Haskell.Refact.Refactoring.Simple
            , Language.Haskell.Refact.Utils.Binds
            , Language.Haskell.Refact.Utils.Cabal

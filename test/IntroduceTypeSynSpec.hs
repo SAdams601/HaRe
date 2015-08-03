@@ -1,7 +1,9 @@
 module IntroduceTypeSynSpec (main, spec) where
 
+
 import Test.Hspec
 import Language.Haskell.Refact.Refactoring.IntroduceTypeSyn
+
 import TestUtils
 
 main :: IO ()

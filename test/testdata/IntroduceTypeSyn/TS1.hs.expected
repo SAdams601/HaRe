@@ -4,4 +4,3 @@ type Name = String
 
 count :: Name -> Int
 count s = length s
-
