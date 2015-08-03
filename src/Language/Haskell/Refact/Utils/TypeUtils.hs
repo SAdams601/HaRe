@@ -1126,8 +1126,9 @@ addItemsToImport' serverModName (GHC.L l p) pns impType = do
       -> RefactGhc ( GHC.LImportDecl GHC.RdrName )
     insertEnts imp ents isNew = do
         logm $ "addItemsToImport':insertEnts:(imp,ents,isNew):" ++ showGhc (imp,ents,isNew)
-        if isNew && not isHide then return imp
-        else do
+        if isNew && not isHide
+          then return imp
+          else do
             logm $ "addItemsToImport':insertEnts:doing stuff"
             newSpan <- liftT uniqueSrcSpanT
             newEnts <- mapM mkNewEnt pns
