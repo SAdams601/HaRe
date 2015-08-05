@@ -38,7 +38,7 @@ comp fileName (row,col) newName typeRep = do
     RefacModified -> return ()
   return [refactoredMod]
     
-addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc ()
+addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc (Anns, Module)
 addSyn pos@(row, col) newName typeRep fileName = do
   parsed <- getRefactParsed
   let maybePn = locToName (row,col) parsed
@@ -54,15 +54,14 @@ addSyn pos@(row, col) newName typeRep fileName = do
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
       Right (anns, mod) <- liftIO $ parseModule fileName
       (tyAs, tyMod) <- addTyDecl pos fullStr anns mod
-      error $ "Intro decl Result=======\n" ++ (exactPrintWithAnns tyMod tyAs)
-      return ()
+      (finAs, finMod) <- renameSigs tyAs tyMod typeRep
+      return (finAs, finMod)
       
 type Module = GHC.Located (GHC.HsModule GHC.RdrName)
 
 addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module)
 addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
   Right res@(decAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d (modNameFromMaybe $ GHC.hsmodName mod) tyDecl)
-  --error $ SYB.showData SYB.Parser 2 (GHC.hsmodDecls mod)
   let
       newAs = Map.union anns decAnns
       (before, (post:after)) = break findInsertPoint (GHC.hsmodDecls mod)
@@ -79,6 +78,10 @@ addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
 modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
 modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
 modNameFromMaybe Nothing = "template"
+
+renameSigs :: Anns -> Module -> String -> RefactGhc (Anns, Module)
+renameSigs as (GHC.L l m) tyRep = do
+  error $ SYB.showData SYB.Parser 2 m
     {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
