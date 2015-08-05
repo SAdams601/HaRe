@@ -53,13 +53,14 @@ addSyn pos@(row, col) newName typeRep fileName = do
       parsedMod <- GHC.parseModule newSum
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
       Right (anns, mod) <- liftIO $ parseModule fileName
-      (tyAs, tyMod) <- addTyDecl pos fullStr anns mod
-      (finAs, finMod) <- renameSigs tyAs tyMod typeRep
+      (tyAs, tyMod, tydec) <- addTyDecl pos fullStr anns mod
+      (finAs, finMod) <- renameSigs tyAs tyMod tydec
+      error $ SYB.showData SYB.Parser 2 mod
       return (finAs, finMod)
       
 type Module = GHC.Located (GHC.HsModule GHC.RdrName)
 
-addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module)
+addTyDecl :: SimpPos -> String -> Anns -> Module -> RefactGhc (Anns, Module, GHC.LHsDecl GHC.RdrName)
 addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
   Right res@(decAnns, tydec) <- liftIO $ withDynFlags (\d -> parseDecl d (modNameFromMaybe $ GHC.hsmodName mod) tyDecl)
   let
@@ -69,19 +70,42 @@ addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
       finalAnns = Map.adjust (\decAnn -> decAnn { annEntryDelta = annEntryDelta }) (mkAnnKey tydec)
                 . Map.adjust (\postAnn -> postAnn { annEntryDelta = DP (2, 0) }) (mkAnnKey post) $ newAs
       finalMod = mod { GHC.hsmodDecls = (tydec:(GHC.hsmodDecls mod)) }
-  return (finalAnns, GHC.L l finalMod)
+  return (finalAnns, GHC.L l finalMod, tydec)
   where findInsertPoint (GHC.L l _)
           | newLoc <= (GHC.srcSpanStart l) = True
           | otherwise = False
         newLoc = GHC.mkSrcLoc (mkFastString "") row col
-           
-modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
-modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
-modNameFromMaybe Nothing = "template"
 
-renameSigs :: Anns -> Module -> String -> RefactGhc (Anns, Module)
-renameSigs as (GHC.L l m) tyRep = do
-  error $ SYB.showData SYB.Parser 2 m
+        modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
+        modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
+        modNameFromMaybe Nothing = "template"
+
+renameSigs :: Anns -> Module -> (GHC.LHsDecl GHC.RdrName) -> RefactGhc (Anns, Module)
+renameSigs as (GHC.L l m) tydec@(GHC.L _ (GHC.TyClD tyCls)) = do
+  let mDecls = GHC.hsmodDecls m
+      (GHC.L _ clsName) = GHC.tcdLName tyCls
+      tyRhs = GHC.tcdRhs tyCls
+      newModDecls = map updateSig mDecls
+  return (as, (GHC.L l (m {GHC.hsmodDecls = newModDecls})))
+  where
+    updateSig ldecl
+      | compareSig ldecl tydec = ldecl
+      | otherwise = ldecl
+
+compareSig :: (GHC.LHsDecl a) -> (GHC.LHsDecl a) -> Bool
+compareSig (GHC.L _ (GHC.SigD (GHC.TypeSig _ ty1 _))) (GHC.L _ (GHC.SigD (GHC.TypeSig _ ty2 _))) = True
+compareSig _ _ = False
+
+compareHsType :: (Eq a) => (GHC.LHsType a) -> (GHC.LHsType a) -> Bool
+compareHsType (GHC.L _ (GHC.HsTyVar n1)) (GHC.L _ (GHC.HsTyVar n2)) = n1 == n2
+compareHsType (GHC.L _ (GHC.HsTupleTy _ lst1)) (GHC.L _ (GHC.HsTupleTy _ lst2)) = compareTyList lst1 lst2
+compareHsType _ _ = False
+
+compareTyList :: (Eq a) => [GHC.LHsType a] -> [GHC.LHsType a] -> Bool
+compareTyList [] [] = True
+compareTyList (ty1:rst1) (ty2:rst2) = (compareHsType ty1 ty2) && (compareTyList rst1 rst2)
+compareTyList _ _ = False
+
     {-case maybePn of
     Just _ -> error "Introduce type synonym failed value already defined at source location"
     Nothing -> do
