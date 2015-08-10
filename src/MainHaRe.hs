@@ -98,7 +98,6 @@ main = flip catches handlers $ do
         cmdArg3 = cmdArg !. 3
         cmdArg4 = cmdArg !. 4
         cmdArg5 = cmdArg !. 5
-        cmdArg6 = cmdArg !. 6
     res <- case cmdArg0 of
 {-
       -- demote wants FilePath -> SimpPos
@@ -126,7 +125,7 @@ main = flip catches handlers $ do
       "roundtrip" -> runFunc cradle $ roundTrip opt defaultOptions cmdArg1
       -- gendef takes a FilePath -> String -> SimpPos -> SimpPos
  --     "gendef" -> runFunc cradle $ generaliseDef opt cradle cmdArg1 cmdArg2 (parseSimpPos cmdArg3 cmdArg4) (parseSimpPos cmdArg5 cmdArg6) 
-      "deletedef" -> runFunc cradle $ deleteDef opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
+ --     "deletedef" -> runFunc cradle $ deleteDef opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3)
 
       "typesyn" -> runFunc cradle $ introduceTypeSyn opt cradle cmdArg1 (parseSimpPos cmdArg2 cmdArg3) cmdArg4 cmdArg5
       
