@@ -88,7 +88,7 @@ renameSigs as (GHC.L l m) tydec@(GHC.L _ (GHC.TyClD tyCls)) = do
   return (as, (GHC.L l (m {GHC.hsmodDecls = newModDecls})))
   where
     tyRhs = GHC.tcdRhs tyCls
-    replaceSig :: GHC.LHsDecl a -> GHC.LHsDecl a
+--    replaceSig :: GHC.LHsDecl a -> GHC.LHsDecl a
     replaceSig decl@(GHC.L l (GHC.SigD (GHC.TypeSig _ sig _)))
       | compareHsType tyRhs sig = decl                                 
     replaceSig other = other    
@@ -107,6 +107,7 @@ compareTyList [] [] = True
 compareTyList (ty1:rst1) (ty2:rst2) = (compareHsType ty1 ty2) && (compareTyList rst1 rst2)
 compareTyList _ _ = False
 
+{-
 getTypeSigs :: (SYB.Data t, SYB.Typeable t) => t -> [GHC.Sig a]
 getTypeSigs t =
   case res of
@@ -114,3 +115,4 @@ getTypeSigs t =
     Nothing -> error "No type signatures found in module"
   where res = SYB.somethingStaged SYB.Parser Nothing (Nothing `SYB.mkQ` worker) t
         worker sig@(GHC.TypeSig _ _ _) = Just sig
+-}
