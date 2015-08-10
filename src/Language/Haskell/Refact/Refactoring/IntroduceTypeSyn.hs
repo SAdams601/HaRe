@@ -38,7 +38,7 @@ comp fileName (row,col) newName typeRep = do
     RefacModified -> return ()
   return [refactoredMod]
     
-addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc (Anns, Module)
+addSyn :: SimpPos -> String -> String -> FilePath -> RefactGhc ()
 addSyn pos@(row, col) newName typeRep fileName = do
   parsed <- getRefactParsed
   let maybePn = locToName (row,col) parsed
@@ -52,11 +52,14 @@ addSyn pos@(row, col) newName typeRep fileName = do
       let newSum = modSum {GHC.ms_hspp_buf = Just buff}
       parsedMod <- GHC.parseModule newSum
       let fullStr = "type " ++ newName ++ " = " ++ typeRep
-      Right (anns, mod) <- liftIO $ parseModule fileName
+      Right (anns, mod@(GHC.L l unLocMod)) <- liftIO $ parseModule fileName
       (tyAs, tyMod, tydec) <- addTyDecl pos fullStr anns mod
-      (finAs, finMod) <- renameSigs tyAs tyMod tydec
-      error $ SYB.showData SYB.Parser 2 mod
-      return (finAs, finMod)
+      Right (_, oldType)  <- liftIO $ withDynFlags (\t -> parseType t (modNameFromMaybe $ GHC.hsmodName unLocMod) typeRep)
+      Right res@(tyAnns, newNameTy)  <- liftIO $ withDynFlags (\t -> parseType t (modNameFromMaybe $ GHC.hsmodName unLocMod) newName)
+      (finAs, finMod) <- renameSigs tyAs tyMod tydec res oldType
+--      error (show finAs)
+      putRefactParsed finMod finAs
+      return ()
       
 type Module = GHC.Located (GHC.HsModule GHC.RdrName)
 
@@ -76,22 +79,24 @@ addTyDecl (row,col) tyDecl anns (GHC.L l mod) = do
           | otherwise = False
         newLoc = GHC.mkSrcLoc (mkFastString "") row col
 
-        modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
-        modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
-        modNameFromMaybe Nothing = "template"
-
-renameSigs :: Anns -> Module -> (GHC.LHsDecl GHC.RdrName) -> RefactGhc (Anns, Module)
-renameSigs as (GHC.L l m) tydec@(GHC.L _ (GHC.TyClD tyCls)) = do
+renameSigs :: Anns -> Module -> (GHC.LHsDecl GHC.RdrName) -> (Anns, GHC.LHsType GHC.RdrName) -> GHC.LHsType GHC.RdrName -> RefactGhc (Anns, Module)
+renameSigs as (GHC.L l m) tydec@(GHC.L _ (GHC.TyClD tyCls)) (tyAs, newName) oldType = do
   let mDecls = GHC.hsmodDecls m
       (GHC.L _ clsName) = GHC.tcdLName tyCls     
-      newModDecls = mDecls
-  return (as, (GHC.L l (m {GHC.hsmodDecls = newModDecls})))
+  newModDecls <- SYB.everywhereM (SYB.mkM replaceSig) mDecls
+  let newAs = Map.union as tyAs
+--      finalAs = Map.adjust ()
+  return (newAs, (GHC.L l (m {GHC.hsmodDecls = newModDecls})))
   where
     tyRhs = GHC.tcdRhs tyCls
---    replaceSig :: GHC.LHsDecl a -> GHC.LHsDecl a
-    replaceSig decl@(GHC.L l (GHC.SigD (GHC.TypeSig _ sig _)))
-      | compareHsType tyRhs sig = decl                                 
-    replaceSig other = other    
+    replaceSig :: GHC.LHsType GHC.RdrName -> RefactGhc (GHC.LHsType GHC.RdrName)
+    replaceSig lDecl@(GHC.L l (GHC.HsFunTy sig _))
+      | compareHsType oldType sig = return newName
+    replaceSig other = return other    
+
+modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
+modNameFromMaybe (Just (GHC.L _ mn)) = GHC.moduleNameString mn
+modNameFromMaybe Nothing = "template"
 
 compareSig :: (GHC.LHsDecl GHC.RdrName) -> (GHC.LHsDecl GHC.RdrName) -> Bool
 compareSig (GHC.L _ (GHC.SigD (GHC.TypeSig _ ty1 _))) (GHC.L _ (GHC.SigD (GHC.TypeSig _ ty2 _))) = True
@@ -106,13 +111,3 @@ compareTyList :: (Eq a) => [GHC.LHsType a] -> [GHC.LHsType a] -> Bool
 compareTyList [] [] = True
 compareTyList (ty1:rst1) (ty2:rst2) = (compareHsType ty1 ty2) && (compareTyList rst1 rst2)
 compareTyList _ _ = False
-
-{-
-getTypeSigs :: (SYB.Data t, SYB.Typeable t) => t -> [GHC.Sig a]
-getTypeSigs t =
-  case res of
-    Just a -> a
-    Nothing -> error "No type signatures found in module"
-  where res = SYB.somethingStaged SYB.Parser Nothing (Nothing `SYB.mkQ` worker) t
-        worker sig@(GHC.TypeSig _ _ _) = Just sig
--}
