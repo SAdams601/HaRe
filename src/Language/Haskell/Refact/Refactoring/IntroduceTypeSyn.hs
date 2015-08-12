@@ -57,7 +57,6 @@ addSyn pos@(row, col) newName typeRep fileName = do
       Right (_, oldType)  <- liftIO $ withDynFlags (\t -> parseType t (modNameFromMaybe $ GHC.hsmodName unLocMod) typeRep)
       Right res@(tyAnns, newNameTy)  <- liftIO $ withDynFlags (\t -> parseType t (modNameFromMaybe $ GHC.hsmodName unLocMod) newName)
       (finAs, finMod) <- renameSigs tyAs tyMod tydec res oldType
---      error (show finAs)
       putRefactParsed finMod finAs
       return ()
       
@@ -85,13 +84,14 @@ renameSigs as (GHC.L l m) tydec@(GHC.L _ (GHC.TyClD tyCls)) (tyAs, newName) oldT
       (GHC.L _ clsName) = GHC.tcdLName tyCls     
   newModDecls <- SYB.everywhereM (SYB.mkM replaceSig) mDecls
   let newAs = Map.union as tyAs
---      finalAs = Map.adjust ()
+    --  finalAs = Map.adjust ()
   return (newAs, (GHC.L l (m {GHC.hsmodDecls = newModDecls})))
   where
     tyRhs = GHC.tcdRhs tyCls
     replaceSig :: GHC.LHsType GHC.RdrName -> RefactGhc (GHC.LHsType GHC.RdrName)
-    replaceSig lDecl@(GHC.L l (GHC.HsFunTy sig _))
-      | compareHsType oldType sig = return newName
+    replaceSig lDecl@(GHC.L l (GHC.HsFunTy sig1 sig2))
+      | compareHsType oldType sig1 = return (GHC.L l (GHC.HsFunTy newName sig2))
+      | compareHsType oldType sig2 = return (GHC.L l (GHC.HsFunTy sig1 newName))
     replaceSig other = return other    
 
 modNameFromMaybe :: Maybe (GHC.Located GHC.ModuleName) -> String
