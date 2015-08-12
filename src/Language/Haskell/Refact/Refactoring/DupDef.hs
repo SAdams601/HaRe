@@ -16,9 +16,8 @@ import Control.Monad
 import Data.List
 import Data.Maybe
 
-import qualified Language.Haskell.GhcMod          as GM
-import qualified Language.Haskell.GhcMod.Internal as GM
-import Language.Haskell.GhcMod
+import qualified Language.Haskell.GhcMod as GM (Options(..))
+import Language.Haskell.GhcMod.Internal as GM (mpPath)
 import Language.Haskell.Refact.API
 
 import Language.Haskell.GHC.ExactPrint.Types
@@ -29,7 +28,7 @@ import Language.Haskell.GHC.ExactPrint.Transform
 -- | This refactoring duplicates a definition (function binding or
 -- simple pattern binding) at the same level with a new name provided by
 -- the user. The new name should not cause name clash/capture.
-duplicateDef :: RefactSettings -> Options -> FilePath -> String -> SimpPos -> IO [FilePath]
+duplicateDef :: RefactSettings -> GM.Options -> FilePath -> String -> SimpPos -> IO [FilePath]
 duplicateDef settings opts fileName newName (row,col) =
   runRefacSession settings opts [Left fileName] (comp fileName newName (row,col))
 
@@ -179,10 +178,8 @@ reallyDoDuplicating pn newName inscopes = do
                 if elem newName vars || (nameAlreadyInScope && findEntity ln duplicatedDecls)
                    then error ("The new name'"++newName++"' will cause name clash/capture or ambiguity problem after "
                                ++ "duplicating, please select another name!")
-                   else do newBinding <- duplicateDecl declsp parentr n newNameGhc
-                           -- let newDecls = replaceDecls declsr (declsr ++ newBinding)
-                           -- let newDecls = replaceBinds declsr (declsr ++ newBinding)
-                           -- return $ replaceBinds parentr newDecls
+                   else do newBinding <- duplicateDecl declsp n newNameGhc
+                   -- else do newBinding <- duplicateDecl declsp parentr n newNameGhc
                            parentr' <- liftT $ replaceDecls parentr (declsp ++ newBinding)
                            return parentr'
 

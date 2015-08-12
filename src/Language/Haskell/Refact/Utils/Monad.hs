@@ -47,18 +47,15 @@ import qualified GhcMonad      as GHC
 import qualified HscTypes      as GHC
 import qualified Outputable    as GHC
 
-import Control.Arrow
 import Control.Applicative
 import Control.Monad.State
 --import Data.Time.Clock
 import Distribution.Helper
 import Exception
-import qualified Language.Haskell.GhcMod          as GM
-import qualified Language.Haskell.GhcMod.Internal as GM
-import           Language.Haskell.GhcMod.Internal hiding (MonadIO,liftIO)
+import qualified Language.Haskell.GhcMod          as GM (LineSeparator(..),Options(..),IOish,GhcModT,runGhcModT)
+import qualified Language.Haskell.GhcMod.Internal as GM (GmLog,MonadIO(..),loadTargets,GmlT(..),GmModuleGraph(..),ModulePath(..),gmlGetSession,gmlSetSession,gmlClear,gmlHistory,gmlJournal,runGmlT',GmEnv(..),GmComponent(..),GmComponentType(..),cabalResolvedComponents)
 import Language.Haskell.Refact.Utils.Types
 import Language.Haskell.GHC.ExactPrint
-import Language.Haskell.GHC.ExactPrint.Types
 import Language.Haskell.GHC.ExactPrint.Utils
 import System.Directory
 import System.Log.Logger
@@ -164,7 +161,7 @@ field, to ensure uniqueness.
 -}
 
 -- type TargetModule = ([FilePath], (Maybe FilePath,GHC.ModSummary))
-type TargetModule = ModulePath -- From ghc-mod
+type TargetModule = GM.ModulePath -- From ghc-mod
 -- data ModulePath = ModulePath { mpModule :: ModuleName, mpPath :: FilePath }
 
 instance GHC.Outputable TargetModule where
@@ -174,7 +171,7 @@ instance GHC.Outputable TargetModule where
 
 -- The CabalGraph comes directly from ghc-mod
 -- type CabalGraph = Map.Map ChComponentName (GM.GmComponent GMCResolved (Set.Set ModulePath))
-type CabalGraph = Map.Map ChComponentName (GM.GmComponent 'GMCResolved (Set.Set ModulePath))
+type CabalGraph = Map.Map ChComponentName (GM.GmComponent 'GM.GMCResolved (Set.Set GM.ModulePath))
 
 type Targets = [Either FilePath GHC.ModuleName]
 
@@ -250,7 +247,7 @@ instance GHC.GhcMonad RefactGhc where
   setSession env = RefactGhc (GM.gmlSetSession env)
 
 instance GHC.HasDynFlags RefactGhc where
-  getDynFlags = RefactGhc (GHC.hsc_dflags <$> gmlGetSession)
+  getDynFlags = RefactGhc (GHC.hsc_dflags <$> GM.gmlGetSession)
 
 
 instance (MonadState RefactState (GHC.GhcT (StateT RefactState IO))) where
@@ -347,8 +344,8 @@ loadModuleGraphGhc maybeTargetFiles = do
   return ()
 -}
 -- ---------------------------------------------------------------------
-
-cabalComponentSets :: RefactGhc [Set.Set ModulePath]
+{-
+cabalComponentSets :: RefactGhc [Set.Set GM.ModulePath]
 cabalComponentSets = do
   mgs <- cabalModuleGraphs
   -- logm $ "cabalComponentSets:mgs=" ++ show mgs
@@ -356,35 +353,35 @@ cabalComponentSets = do
     toSet (k,v) = Set.insert k v
     flatten (GM.GmModuleGraph mg) = foldl Set.union Set.empty $ map toSet (Map.toList mg)
   return $ map flatten mgs
+-}
 
 -- ---------------------------------------------------------------------
 
 cabalModuleGraphs :: RefactGhc [GM.GmModuleGraph]
+-- cabalModuleGraphs = RefactGhc (GM.GmlT GM.cabalModuleGraphs)
 cabalModuleGraphs = RefactGhc (GM.GmlT doCabalModuleGraphs)
   where
+    doCabalModuleGraphs :: (GM.IOish m) => GM.GhcModT m [GM.GmModuleGraph]
     doCabalModuleGraphs = do
-      crdl@(GM.Cradle{..}) <- GM.cradle
-
-      comps <- mapM (GM.resolveEntrypoint crdl) =<< GM.getComponents
-      mcs <- GM.cached cradleRootDir GM.resolvedComponentsCache comps
+      mcs <- GM.cabalResolvedComponents
       let graph = map GM.gmcHomeModuleGraph $ Map.elems mcs
       return $ graph
 
 -- ---------------------------------------------------------------------
 
-initGmlSession :: [GHCOption] -> (GHC.DynFlags -> GHC.Ghc GHC.DynFlags) -> RefactGhc ()
-initGmlSession opts mdf = RefactGhc (GmlT $ initSession opts mdf)
+-- initGmlSession :: [GM.GHCOption] -> (GHC.DynFlags -> GHC.Ghc GHC.DynFlags) -> RefactGhc ()
+-- initGmlSession opts mdf = RefactGhc (GM.GmlT $ GM.initSession opts mdf)
 
-getTargetGhcOptions :: GM.Cradle -> Set.Set (Either FilePath GHC.ModuleName)
-                  -> RefactGhc [GHCOption]
-getTargetGhcOptions crdl mfns
-  = RefactGhc (GmlT $ targetGhcOptions crdl mfns)
+-- getTargetGhcOptions :: GM.Cradle -> Set.Set (Either FilePath GHC.ModuleName)
+--                   -> RefactGhc [GM.GHCOption]
+-- getTargetGhcOptions crdl mfns
+--   = RefactGhc (GM.GmlT $ GM.targetGhcOptions crdl mfns)
 
 -- ---------------------------------------------------------------------
 
 -- |Hand the loading of targets over to ghc-mod
 loadTarget :: [FilePath] -> RefactGhc ()
-loadTarget targetFiles = RefactGhc (loadTargets targetFiles)
+loadTarget targetFiles = RefactGhc (GM.loadTargets targetFiles)
 
 -- ---------------------------------------------------------------------
 {-

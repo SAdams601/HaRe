@@ -153,7 +153,7 @@ import qualified FastString    as GHC
 import qualified GHC           as GHC
 import qualified Module        as GHC
 import qualified Name          as GHC
-import qualified Outputable    as GHC
+-- import qualified Outputable    as GHC
 import qualified RdrName       as GHC
 import qualified Unique        as GHC
 import qualified Var           as GHC
@@ -229,6 +229,8 @@ isInScopeAndUnqualifiedGhc n maybeExising = do
     handler e = do
       logm $ "isInScopeAndUnqualifiedGhc.handler e=" ++ (show e)
       return []
+
+-- ---------------------------------------------------------------------
 
 inScopeNames :: String         -- ^ The identifier name.
              -> RefactGhc [GHC.Name] -- ^ The result.
@@ -691,20 +693,24 @@ instance UsedByRhs GHC.RenamedSource where
 
    -- Not a meaningful question at this level
    usedByRhs _renamed _pns = False
+   usedByRhsRdr _ _ = assert False undefined
 
 instance UsedByRhs (GHC.HsModule GHC.RdrName) where
 
    -- Not a meaningful question at this level
    usedByRhsRdr _ _parsed _pns = False
+   usedByRhs _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance (UsedByRhs a) => UsedByRhs (GHC.Located a) where
   usedByRhsRdr nm (GHC.L _ d) pns = usedByRhsRdr nm d pns
+  usedByRhs _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance UsedByRhs (GHC.HsDecl GHC.RdrName) where
+  usedByRhs _ _ = assert False undefined
   usedByRhsRdr nm de pns =
    case de of
       GHC.TyClD d       -> f d
@@ -731,73 +737,94 @@ instance UsedByRhs (GHC.HsDecl GHC.RdrName) where
 
 instance UsedByRhs (GHC.TyClDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.InstDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.DerivDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.ForeignDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.WarnDecls GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.AnnDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.RoleAnnotDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.HsQuasiQuote GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.DefaultDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.SpliceDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.VectDecl GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.RuleDecls GHC.RdrName) where
+  usedByRhs _ _ = assert False undefined
   usedByRhsRdr = assert False undefined
 
 instance UsedByRhs GHC.DocDecl where
+  usedByRhs _ _ = assert False undefined
   usedByRhsRdr = assert False undefined
 
 instance UsedByRhs (GHC.HsBind GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 instance UsedByRhs (GHC.Sig GHC.RdrName) where
   usedByRhsRdr = assert False undefined
+  usedByRhs _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance UsedByRhs (GHC.LHsBinds GHC.Name) where
   usedByRhs binds pns = or $ map (\b -> usedByRhs b pns) $ GHC.bagToList binds
+  usedByRhsRdr _ _ = assert False undefined
 
 instance UsedByRhs (GHC.HsValBinds GHC.Name) where
   usedByRhs (GHC.ValBindsIn binds _sigs) pns  = usedByRhs (GHC.bagToList binds) pns
   usedByRhs (GHC.ValBindsOut binds _sigs) pns = or $ map (\(_,b) -> usedByRhs b pns) binds
+  usedByRhsRdr _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance UsedByRhs (GHC.Match GHC.Name (GHC.LHsExpr GHC.Name)) where
   usedByRhs (GHC.Match _ _ _ (GHC.GRHSs rhs _)) pns -- = usedByRhs (hsValBinds rhs) pns
                                                  = findPNs pns rhs
+  usedByRhsRdr _ _ = assert False undefined
 
 
 instance UsedByRhs (GHC.Match GHC.RdrName (GHC.LHsExpr GHC.RdrName)) where
   usedByRhsRdr nm (GHC.Match _ _ _ (GHC.GRHSs rhs _)) pns
     = findNamesRdr nm pns rhs
 
+  usedByRhs _ _ = assert False undefined
+
 -- -------------------------------------
 
 instance UsedByRhs [GHC.LHsBind GHC.Name] where
   usedByRhs binds pns = or $ map (\b -> usedByRhs b pns) binds
+  usedByRhsRdr _ _ = assert False undefined
 
 instance UsedByRhs (GHC.HsBind GHC.Name) where
   usedByRhs (GHC.FunBind _ _ matches _ _ _) pns = findPNs pns matches
@@ -805,26 +832,31 @@ instance UsedByRhs (GHC.HsBind GHC.Name) where
   usedByRhs (GHC.VarBind _ rhs _)           pns = findPNs pns rhs
   usedByRhs (GHC.AbsBinds _ _ _ _ _)       _pns = False
   usedByRhs (GHC.PatSynBind _)             _pns = error "To implement: usedByRhs PaySynBind"
+  usedByRhsRdr _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance UsedByRhs (GHC.HsExpr GHC.Name) where
   usedByRhs (GHC.HsLet _lb e) pns = findPNs pns e
   usedByRhs e                _pns = error $ "undefined usedByRhs:" ++ (showGhc e)
+  usedByRhsRdr _ _ = assert False undefined
 
 instance UsedByRhs (GHC.HsExpr GHC.RdrName) where
   usedByRhsRdr nm (GHC.HsLet _lb e) pns = findNamesRdr nm pns e
   usedByRhsRdr _ e                 _pns = error $ "undefined usedByRhsRdr:" ++ (showGhc e)
+  usedByRhs _ _ = assert False undefined
 
 -- -------------------------------------
 
 instance UsedByRhs (GHC.Stmt GHC.Name (GHC.LHsExpr GHC.Name)) where
   usedByRhs (GHC.LetStmt lb) pns = findPNs pns lb
   usedByRhs s               _pns = error $ "undefined usedByRhs:" ++ (showGhc s)
+  usedByRhsRdr _ _ = assert False undefined
 
 instance UsedByRhs (GHC.Stmt GHC.RdrName (GHC.LHsExpr GHC.RdrName)) where
   usedByRhsRdr nm (GHC.LetStmt lb) pns = findNamesRdr nm pns lb
   usedByRhsRdr _ s               _pns = error $ "undefined usedByRhsRdr:" ++ (showGhc s)
+  usedByRhs _ _ = assert False undefined
 
 --------------------------------------------------------------------------------
 
@@ -892,7 +924,7 @@ addImportDecl (GHC.L l p) modName pkgQual source safe qualify alias hide idNames
        newSpan2 <- liftT uniqueSrcSpanT
        newEnts <- mapM mkNewEnt idNames
        let lNewEnts = GHC.L newSpan2 newEnts
-       logm $ "addImportDecl.mkImpDecl:adding anns for:" ++ showGhc lNewEnts
+       -- logm $ "addImportDecl.mkImpDecl:adding anns for:" ++ showGhc lNewEnts
        liftT $ addSimpleAnnT lNewEnts (DP (0,1)) [((G GHC.AnnHiding),DP (0,0)),((G GHC.AnnOpenP),DP (0,1)),((G GHC.AnnCloseP),DP (0,0))]
        return $ GHC.ImportDecl
                         { GHC.ideclSourceSrc = Nothing
@@ -911,7 +943,7 @@ addImportDecl (GHC.L l p) modName pkgQual source safe qualify alias hide idNames
                         }
 
 -- ---------------------------------------------------------------------
-
+{-
 -- | Remove ImportDecl from the imports list, commonly returned from a RenamedSource type, so it can
 -- be further processed.
 --rmPreludeImports :: [GHC.Located (GHC.ImportDecl GHC.Name)] -> [GHC.Located (GHC.ImportDecl GHC.Name)]
@@ -920,7 +952,7 @@ rmPreludeImports ::
   -> [GHC.Located (GHC.ImportDecl GHC.Name)]
 rmPreludeImports = filter isPrelude where
             isPrelude = (/="Prelude") . GHC.moduleNameString . GHC.unLoc . GHC.ideclName . GHC.unLoc
-
+-}
 
 -- ---------------------------------------------------------------------
 {-
@@ -1028,8 +1060,8 @@ addDecl parent pn (decl, msig, mDeclAnns) topLevel = do
          r <- refactReplaceDecls parent' (sigs ++ [newDecl]++decls)
          return r
 
-  wrapDecl :: GHC.LHsBind name -> GHC.LHsDecl name
-  wrapDecl (GHC.L l d) = GHC.L l (GHC.ValD d)
+  -- wrapDecl :: GHC.LHsBind name -> GHC.LHsDecl name
+  -- wrapDecl (GHC.L l d) = GHC.L l (GHC.ValD d)
 
   wrapSig :: GHC.LSig name -> GHC.LHsDecl name
   wrapSig (GHC.L l d) = GHC.L l (GHC.SigD d)
@@ -1144,8 +1176,8 @@ addItemsToImport' serverModName (GHC.L l p) pns impType = do
             return (replaceHiding imp  (Just (isHide, lNewEnts)))
 
 
-    replaceHiding (GHC.L l (GHC.ImportDecl st mn q src safe isQ isImp as _h)) h1 =
-                  (GHC.L l (GHC.ImportDecl st mn q src safe isQ isImp as h1))
+    replaceHiding (GHC.L l1 (GHC.ImportDecl st mn q src safe isQ isImp as _h)) h1 =
+                  (GHC.L l1 (GHC.ImportDecl st mn q src safe isQ isImp as h1))
 
 -- ---------------------------------------------------------------------
 
@@ -1171,11 +1203,11 @@ addParamsToDecls decls pn paramPNames modifyToks = do
          matches' <- mapM addParamtoMatch matches
          return (GHC.L l1 (GHC.ValD (GHC.FunBind (GHC.L l2 pname) i (GHC.MG matches' a ptt o) co fvs t)))
       where
-       addParamtoMatch (GHC.L l (GHC.Match fn pats mtyp rhs))
+       addParamtoMatch (GHC.L l (GHC.Match fn1 pats mtyp rhs))
         = do
              rhs' <- addActualParamsToRhs modifyToks pn paramPNames rhs
              pats' <- liftT $ mapM addParam paramPNames
-             return (GHC.L l (GHC.Match fn (pats'++pats) mtyp rhs'))
+             return (GHC.L l (GHC.Match fn1 (pats'++pats) mtyp rhs'))
 
    -- TODO: The following will never match, as a PatBind only deals with complex patterns.
    addParamToDecl _nameMap x@(GHC.L _l1 (GHC.ValD (GHC.PatBind _pat@(GHC.L _l2 (GHC.VarPat _p)) _rhs _ty _fvs _t)))
@@ -1197,21 +1229,22 @@ addActualParamsToRhs modifyToks pn paramPNames rhs = do
     -- logm $ "addActualParamsToRhs:rhs=" ++ (SYB.showData SYB.Renamer 0 $ rhs)
     nameMap <- getRefactNameMap
     let
-
        -- |Limit the action to actual RHS elements
        grhs :: (GHC.GRHSs GHC.RdrName (GHC.LHsExpr GHC.RdrName)) -> RefactGhc (GHC.GRHSs GHC.RdrName (GHC.LHsExpr GHC.RdrName))
        grhs (GHC.GRHSs g lb) = do
-         -- logm $ "addActualParamsToRhs.grhs:g=" ++ (SYB.showData SYB.Renamer 0 g)
+         logm $ "addActualParamsToRhs.grhs:g=" ++ (SYB.showData SYB.Renamer 0 g)
          g' <- SYB.everywhereMStaged SYB.Renamer (SYB.mkM worker) g
          return (GHC.GRHSs g' lb)
 
-       worker :: (GHC.Located (GHC.HsExpr GHC.RdrName)) -> RefactGhc (GHC.Located (GHC.HsExpr GHC.RdrName))
+       worker :: (GHC.LHsExpr GHC.RdrName) -> RefactGhc (GHC.LHsExpr GHC.RdrName)
        worker oldExp@(GHC.L l2 (GHC.HsVar pname))
         -- * | pname == pn
         | eqRdrNamePure nameMap (GHC.L l2 pname) pn
           = do
               -- logm $ "addActualParamsToRhs:oldExp=" ++ (SYB.showData SYB.Renamer 0 oldExp)
-              let newExp' = foldl addParamToExp oldExp paramPNames
+              -- let newExp' = foldl addParamToExp oldExp paramPNames
+              newExp' <- liftT $ foldlM addParamToExp oldExp paramPNames
+
               let newExp  = (GHC.L l2 (GHC.HsPar newExp'))
               -- TODO: updateToks must add a space at the end of the
               --       new exp
@@ -1220,8 +1253,11 @@ addActualParamsToRhs modifyToks pn paramPNames rhs = do
                             else return newExp
        worker x = return x
 
-       addParamToExp :: (GHC.LHsExpr GHC.RdrName) -> GHC.RdrName -> (GHC.LHsExpr GHC.RdrName)
-       addParamToExp  expr param = GHC.noLoc (GHC.HsApp expr (GHC.noLoc (GHC.HsVar param)))
+       addParamToExp :: (GHC.LHsExpr GHC.RdrName) -> GHC.RdrName -> Transform (GHC.LHsExpr GHC.RdrName)
+       addParamToExp  expr param = do
+         ss1 <- uniqueSrcSpanT
+         ss2 <- uniqueSrcSpanT
+         return $ GHC.L ss1 (GHC.HsApp expr (GHC.L ss2 (GHC.HsVar param)))
 
     r <- applyTP (stop_tdTP (failTP `adhocTP` grhs)) rhs
     return r
@@ -1309,34 +1345,22 @@ Original : sq x + sumSquares xs
 -- ---------------------------------------------------------------------
 
 -- | Duplicate a function\/pattern binding declaration under a new name
--- right after the original one. Also updates the token stream.
-duplicateDecl :: (SYB.Data t) =>
-  -- ++AZ++ TODO: generalise the first param to 'HasDecls t'
-  [GHC.LHsDecl GHC.RdrName]  -- ^ The declaration list
-  ->t                   -- ^ Any signatures are in here
+-- right after the original one.
+duplicateDecl ::
+    [GHC.LHsDecl GHC.RdrName] -- ^ decls to be updated, containing the original decl (and sig)
   ->GHC.Name            -- ^ The identifier whose definition is to be duplicated
   ->GHC.Name            -- ^ The new name (possibly qualified)
   ->RefactGhc [GHC.LHsDecl GHC.RdrName]  -- ^ The result
-duplicateDecl decls sigs n newFunName
+duplicateDecl decls n newFunName
  = do
+     -- decls <- liftT $ hsDecls t
      nm <- getRefactNameMap
      let
        declsToDup = definingDeclsRdrNames nm [n] decls True False
        funBinding = filter isFunOrPatBindP declsToDup     --get the fun binding.
-       typeSig    = definingSigsRdrNames nm [n] sigs
-     let Just sspan = getSrcSpan funBinding
-
-     _ <- case typeSig of
-         [] -> return sspan
-         _  -> do
-          _typeSig'' <- renamePN n newFunName False typeSig
-
-          let [(GHC.L sspanSig' _)] = typeSig
-
-          return sspanSig'
+       typeSig    = definingSigsRdrNames nm [n] decls
      funBinding'' <- renamePN n newFunName False funBinding
 
-     -- return (typeSig'++funBinding') -- ++AZ++ TODO: reinstate this
      return funBinding''
 
 -- ---------------------------------------------------------------------
@@ -2377,7 +2401,7 @@ nameToString name = showGhcQual name
 -- identifier, otherwise return Nothing
 patToNameRdr :: NameMap -> GHC.LPat GHC.RdrName -> Maybe GHC.Name
 patToNameRdr nm (GHC.L l (GHC.VarPat n)) = Just (rdrName2NamePure nm (GHC.L l n))
-patToName _ _ = Nothing
+patToNameRdr _ _ = Nothing
 
 -- | If a pattern consists of only one identifier then return this
 -- identifier, otherwise return Nothing
