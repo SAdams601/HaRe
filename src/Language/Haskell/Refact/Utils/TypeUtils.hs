@@ -219,8 +219,7 @@ isInScopeAndUnqualifiedGhc n maybeExising = do
   logm $ "isInScopeAndUnqualifiedGhc:ctx=" ++ (showGhc ctx)
   let nameList = case maybeExising of
                   Nothing -> names
-                  -- Just n' -> filter (\x -> (GHC.nameUnique x) /= (GHC.nameUnique n')) names
-                  Just n' -> filter (\x -> (showGhc x) /= (showGhc n')) names
+                  Just n' -> filter (\x -> (showGhcQual x) /= (showGhcQual n')) names
   logm $ "isInScopeAndUnqualifiedGhc:(n,nameList)=" ++ (show n) ++ ":" ++  (showGhc nameList)
   return $ nameList /= []
 
@@ -922,7 +921,7 @@ addImportDecl (GHC.L l p) modName pkgQual source safe qualify alias hide idNames
      mkImpDecl = do
        newSpan1 <- liftT uniqueSrcSpanT
        newSpan2 <- liftT uniqueSrcSpanT
-       newEnts <- mapM mkNewEnt idNames
+       newEnts <- mkNewEntList idNames
        let lNewEnts = GHC.L newSpan2 newEnts
        -- logm $ "addImportDecl.mkImpDecl:adding anns for:" ++ showGhc lNewEnts
        liftT $ addSimpleAnnT lNewEnts (DP (0,1)) [((G GHC.AnnHiding),DP (0,0)),((G GHC.AnnOpenP),DP (0,1)),((G GHC.AnnCloseP),DP (0,0))]
@@ -986,42 +985,38 @@ addDecl:: (HasDecls t)
         -> Maybe GHC.Name -- ^If this is Just, then the declaration
                           -- will be added right after this
                           -- identifier's definition.
-        -> (GHC.LHsDecl GHC.RdrName, Maybe (GHC.LSig GHC.RdrName), Maybe Anns)
-             -- ^ The declaration with optional signatures to be added,
-             -- together with optional Annotations.
+        -> ([GHC.LHsDecl GHC.RdrName],  Maybe Anns)
+             -- ^ The declaration with optional signatures to be added, together
+             -- with optional Annotations.
         -> Bool              -- ^ True means the declaration is a
                              -- toplevel declaration.
         -> RefactGhc t
 
-addDecl parent pn (decl, msig, mDeclAnns) topLevel = do
+addDecl parent pn (declSig, mDeclAnns) topLevel = do
   case mDeclAnns of
     Nothing -> return ()
-    Just declAnns -> addRefactAnns declAnns
+    Just declAnns -> -- addRefactAnns declAnns
+      liftT $ modifyAnnsT (mergeAnns declAnns)
   if isJust pn
-    then appendDecl parent (gfromJust "addDecl" pn) (decl, msig)
+    then appendDecl parent (gfromJust "addDecl" pn) declSig
     else if topLevel
-           then addTopLevelDecl (decl, msig) parent
-           else addLocalDecl parent (decl,msig)
+           then addTopLevelDecl declSig parent
+           else addLocalDecl parent declSig
  where
-  setDeclSpacing newDecl maybeSig n c = do
-         ans1 <- getRefactAnns
-         let
-             ans3 = case maybeSig of
-               Nothing -> setPrecedingLinesDecl newDecl n c ans1
-               Just s  -> setPrecedingLinesDecl newDecl 1 0 ans2
-                 where
-                   ans2 = setPrecedingLinesDecl s n c ans1
-         setRefactAnns ans3
+  setDeclSpacing newDeclSig n c = do
+    -- First clear any previous indentation
+    mapM_ (\d -> setPrecedingLinesDeclT d 0 0) newDeclSig
+    setPrecedingLinesT (head newDeclSig) n c
+    mapM_ (\d -> setPrecedingLinesT d 1 0) (tail newDeclSig)
 
   appendDecl :: (HasDecls t)
       => t        -- ^Original AST
       -> GHC.Name -- ^Name to add the declaration after
-      -> (GHC.LHsDecl GHC.RdrName, Maybe (GHC.LSig GHC.RdrName)) -- ^declaration and maybe sig
+      -> [GHC.LHsDecl GHC.RdrName] -- ^declaration and maybe sig
       -> RefactGhc t -- ^updated AST
-  appendDecl parent' pn' (newDecl, maybeSig)
+  appendDecl parent' pn' newDeclSig
     = do
-         let maybeSigDecl = fmap wrapSig maybeSig
-         setDeclSpacing newDecl maybeSigDecl 2 0
+         liftT $ setDeclSpacing newDeclSig 2 0
          nameMap <- getRefactNameMap
          decls <- refactRunTransform (hsDecls parent')
          let
@@ -1029,43 +1024,36 @@ addDecl parent pn (decl, msig, mDeclAnns) topLevel = do
 
          let decls1 = before ++ [ghead "appendDecl14" after]
              decls2 = gtail "appendDecl15" after
-         refactReplaceDecls parent' (decls1++(toList maybeSigDecl)++[newDecl]++decls2)
+         refactReplaceDecls parent' (decls1++newDeclSig++decls2)
 
 
   -- ^Add a definition to the beginning of the definition declaration
   -- list, but after the data type declarations if there are any.
   addTopLevelDecl :: (HasDecls t)
-       => (GHC.LHsDecl GHC.RdrName, Maybe (GHC.LSig GHC.RdrName))
+       => [GHC.LHsDecl GHC.RdrName]
        -> t -> RefactGhc t
-  addTopLevelDecl (newDecl, maybeSig) parent'
+  addTopLevelDecl newDeclSig parent'
     = do decls <- liftT (hsDecls parent')
-         let maybeSigDecl = fmap wrapSig maybeSig
-         setDeclSpacing newDecl maybeSigDecl 2 0
-         refactReplaceDecls parent' ((toList maybeSigDecl) ++ [newDecl]++decls)
+         liftT $ setDeclSpacing newDeclSig 2 0
+         refactReplaceDecls parent' (newDeclSig++decls)
 
 
   addLocalDecl :: (HasDecls t)
-               => t -> (GHC.LHsDecl GHC.RdrName, Maybe (GHC.LSig GHC.RdrName))
+               => t -> [GHC.LHsDecl GHC.RdrName]
                -> RefactGhc t
-  addLocalDecl parent' (newDecl, maybeSig)
+  addLocalDecl parent' newDeclSig
     = do
-         decls <- refactRunTransform (hsDecls parent')
-         sigs  <- refactRunTransform (mapM wrapSigT $ toList maybeSig)
+         -- logDataWithAnns "addDecl.addLocalDecl" (newDeclSig,parent')
+         -- logDataWithAnns "addDecl.addLocalDecl" parent'
+         decls <- liftT (hsDecls parent')
          case decls of
-           [] -> setDeclSpacing newDecl (listToMaybe sigs) 1 4
+           [] -> liftT $ setDeclSpacing newDeclSig 1 4
            ds -> do
-             DP (r,c) <- refactRunTransform (getEntryDPT (head ds))
-             setDeclSpacing newDecl (listToMaybe sigs) r c
-             modifyRefactAnns (\ans -> setPrecedingLines (head ds) 1 0 ans)
-         r <- refactReplaceDecls parent' (sigs ++ [newDecl]++decls)
+             DP (r,c) <- liftT (getEntryDPT (head ds))
+             liftT $ setDeclSpacing newDeclSig r c
+             liftT $ setPrecedingLinesT (head ds) 1 0
+         r <- liftT $ replaceDecls parent' (newDeclSig++decls)
          return r
-
-  -- wrapDecl :: GHC.LHsBind name -> GHC.LHsDecl name
-  -- wrapDecl (GHC.L l d) = GHC.L l (GHC.ValD d)
-
-  wrapSig :: GHC.LSig name -> GHC.LHsDecl name
-  wrapSig (GHC.L l d) = GHC.L l (GHC.SigD d)
-
 
 -- ---------------------------------------------------------------------
 
@@ -1099,20 +1087,36 @@ stripLeadingSpaces xs = map (drop n) xs
 -- | add items to the hiding list of an import declaration which
 -- imports the specified module.
 addHiding::
-    GHC.ModuleName       -- ^ The imported module name
-  ->GHC.ParsedSource     -- ^ The current module
-  ->[GHC.RdrName]        -- ^ The items to be added
-  ->RefactGhc GHC.ParsedSource -- ^ The result
-addHiding a b c = do
-  logm $ "addHiding called for (module,names):" ++ showGhc (a,c)
-  addItemsToImport' a b c Hide
+     GHC.ModuleName       -- ^ The imported module name
+  -> GHC.ParsedSource     -- ^ The current module
+  -> [GHC.RdrName]        -- ^ The items to be added
+  -> RefactGhc GHC.ParsedSource -- ^ The result
+addHiding mn p ns = do
+  logm $ "addHiding called for (module,names):" ++ showGhc (mn,ns)
+  p' <- addItemsToImport' mn p ns Hide
+  putRefactParsed p' emptyAnns
+  return p'
+
+-- --------------------------------------------------------------------
+
+-- | Creates a new entity list for hiding a name in an ImportDecl.
+mkNewEntList :: [GHC.RdrName] -> RefactGhc [GHC.LIE GHC.RdrName]
+mkNewEntList idNames = do
+  case idNames of
+    [] -> return []
+    _ -> do
+      newEntsInit <- mapM (mkNewEnt True) (init idNames)
+      newEntsLast <- mkNewEnt False (last idNames)
+      return (newEntsInit ++ [newEntsLast])
 
 -- | Creates a new entity for hiding a name in an ImportDecl.
-mkNewEnt :: GHC.RdrName -> RefactGhc (GHC.LIE GHC.RdrName)
-mkNewEnt pn = do
+mkNewEnt :: Bool -> GHC.RdrName -> RefactGhc (GHC.LIE GHC.RdrName)
+mkNewEnt addCommaAnn pn = do
   newSpan <- liftT uniqueSrcSpanT
   let lpn = GHC.L newSpan pn
-  liftT $ addSimpleAnnT lpn (DP (0,0)) [((G GHC.AnnVal),DP (0,0))]
+  if addCommaAnn
+    then liftT $ addSimpleAnnT lpn (DP (0,0)) [((G GHC.AnnVal),DP (0,0)),((G GHC.AnnComma),DP (0,0))]
+    else liftT $ addSimpleAnnT lpn (DP (0,0)) [((G GHC.AnnVal),DP (0,0))]
   return (GHC.L newSpan (GHC.IEVar lpn))
 
 -- | Represents the operation type we want to select on addItemsToImport'
@@ -1134,13 +1138,12 @@ addItemsToImport mn r ns = addItemsToImport' mn r ns Import
 --   list. If it is Import, they will be added to the explicit import entries. This function does nothing if
 --   the import declaration does not have an explicit entity list and ImportType is Import.
 addItemsToImport'::
-    GHC.ModuleName       -- ^ The imported module name
-  ->GHC.ParsedSource     -- ^ The current module
-  ->[GHC.RdrName]        -- ^ The items to be added
+     GHC.ModuleName       -- ^ The imported module name
+  -> GHC.ParsedSource     -- ^ The current module
+  -> [GHC.RdrName]        -- ^ The items to be added
 --  ->Maybe GHC.Name       -- ^ The condition identifier.
-  ->ImportType            -- ^ Whether to hide the names or import them. Uses special data for clarity.
-  ->RefactGhc GHC.ParsedSource -- ^ The result
--- addItemsToImport' serverModName (g,imps,e,d) pns impType = do
+  -> ImportType           -- ^ Whether to hide the names or import them. Uses special data for clarity.
+  -> RefactGhc GHC.ParsedSource -- ^ The result
 addItemsToImport' serverModName (GHC.L l p) pns impType = do
     let imps = GHC.hsmodImports p
     imps' <- mapM inImport imps
@@ -1169,10 +1172,11 @@ addItemsToImport' serverModName (GHC.L l p) pns impType = do
          else do
             logm $ "addItemsToImport':insertEnts:doing stuff"
             newSpan <- liftT uniqueSrcSpanT
-            newEnts <- mapM mkNewEnt pns
-            let lNewEnts = GHC.L newSpan (newEnts++ents)
+            newEnts <- mkNewEntList pns
+            let lNewEnts = GHC.L newSpan (ents++newEnts)
             logm $ "addImportDecl.mkImpDecl:adding anns for:" ++ showGhc lNewEnts
             liftT $ addSimpleAnnT lNewEnts (DP (0,1)) [((G GHC.AnnHiding),DP (0,0)),((G GHC.AnnOpenP),DP (0,1)),((G GHC.AnnCloseP),DP (0,0))]
+            when (not (null ents)) $ do liftT (addTrailingCommaT (last ents))
             return (replaceHiding imp  (Just (isHide, lNewEnts)))
 
 
@@ -1185,10 +1189,9 @@ addParamsToDecls::
         [GHC.LHsDecl GHC.RdrName] -- ^ A declaration list where the function is defined and\/or used.
       -> GHC.Name       -- ^ The function name.
       -> [GHC.RdrName]  -- ^ The parameters to be added.
-      -> Bool           -- ^ Modify the token stream or not.
       -> RefactGhc [GHC.LHsDecl GHC.RdrName] -- ^ The result.
 
-addParamsToDecls decls pn paramPNames modifyToks = do
+addParamsToDecls decls pn paramPNames = do
   -- logm $ "addParamsToDecls (pn,paramPNames,modifyToks)=" ++ (showGhc (pn,paramPNames,modifyToks))
   -- logm $ "addParamsToDecls: decls=" ++ (SYB.showData SYB.Renamer 0 decls)
   nameMap <- getRefactNameMap
@@ -1205,7 +1208,7 @@ addParamsToDecls decls pn paramPNames modifyToks = do
       where
        addParamtoMatch (GHC.L l (GHC.Match fn1 pats mtyp rhs))
         = do
-             rhs' <- addActualParamsToRhs modifyToks pn paramPNames rhs
+             rhs' <- addActualParamsToRhs pn paramPNames rhs
              pats' <- liftT $ mapM addParam paramPNames
              return (GHC.L l (GHC.Match fn1 (pats'++pats) mtyp rhs'))
 
@@ -1223,46 +1226,102 @@ addParamsToDecls decls pn paramPNames modifyToks = do
 -- ---------------------------------------------------------------------
 
 addActualParamsToRhs :: (SYB.Data t) =>
-                        Bool -> GHC.Name -> [GHC.RdrName] -> t -> RefactGhc t
-addActualParamsToRhs modifyToks pn paramPNames rhs = do
+                        GHC.Name -> [GHC.RdrName] -> t -> RefactGhc t
+addActualParamsToRhs pn paramPNames rhs = do
     logm $ "addActualParamsToRhs:entered:(pn,paramPNames)=" ++ showGhc (pn,paramPNames)
-    -- logm $ "addActualParamsToRhs:rhs=" ++ (SYB.showData SYB.Renamer 0 $ rhs)
     nameMap <- getRefactNameMap
     let
        -- |Limit the action to actual RHS elements
        grhs :: (GHC.GRHSs GHC.RdrName (GHC.LHsExpr GHC.RdrName)) -> RefactGhc (GHC.GRHSs GHC.RdrName (GHC.LHsExpr GHC.RdrName))
        grhs (GHC.GRHSs g lb) = do
-         logm $ "addActualParamsToRhs.grhs:g=" ++ (SYB.showData SYB.Renamer 0 g)
          g' <- SYB.everywhereMStaged SYB.Renamer (SYB.mkM worker) g
          return (GHC.GRHSs g' lb)
 
        worker :: (GHC.LHsExpr GHC.RdrName) -> RefactGhc (GHC.LHsExpr GHC.RdrName)
        worker oldExp@(GHC.L l2 (GHC.HsVar pname))
-        -- * | pname == pn
         | eqRdrNamePure nameMap (GHC.L l2 pname) pn
           = do
-              -- logm $ "addActualParamsToRhs:oldExp=" ++ (SYB.showData SYB.Renamer 0 oldExp)
-              -- let newExp' = foldl addParamToExp oldExp paramPNames
+              logDataWithAnns "addActualParamsToRhs:oldExp=" oldExp
               newExp' <- liftT $ foldlM addParamToExp oldExp paramPNames
 
-              let newExp  = (GHC.L l2 (GHC.HsPar newExp'))
-              -- TODO: updateToks must add a space at the end of the
-              --       new exp
-              if modifyToks then do -- _ <- updateToks oldExp newExp prettyprint False
-                                    return newExp
-                            else return newExp
+              edp <- liftT $ getEntryDPT oldExp
+              liftT $ setEntryDPT oldExp (DP (0,0))
+              l2' <- liftT $ uniqueSrcSpanT
+              let newExp  = (GHC.L l2' (GHC.HsPar newExp'))
+              liftT $ addSimpleAnnT newExp (DP (0,0)) [(G GHC.AnnOpenP,DP (0,0)),(G GHC.AnnCloseP,DP (0,0))]
+              liftT $ setEntryDPT newExp edp
+              return newExp
        worker x = return x
 
        addParamToExp :: (GHC.LHsExpr GHC.RdrName) -> GHC.RdrName -> Transform (GHC.LHsExpr GHC.RdrName)
-       addParamToExp  expr param = do
+       addParamToExp expr param = do
          ss1 <- uniqueSrcSpanT
          ss2 <- uniqueSrcSpanT
-         return $ GHC.L ss1 (GHC.HsApp expr (GHC.L ss2 (GHC.HsVar param)))
+         let var   = GHC.L ss2 (GHC.HsVar param)
+         let expr' = GHC.L ss1 (GHC.HsApp expr var)
+         addSimpleAnnT var (DP (0,0)) [(G GHC.AnnVal,DP (0,1))]
+         addSimpleAnnT expr' (DP (0,0)) []
+         return expr'
 
     r <- applyTP (stop_tdTP (failTP `adhocTP` grhs)) rhs
     return r
 
+{-
 
+The code
+
+    sumSqu (x:xs) = (sq bar2) x + sumSquares xs
+
+results in
+
+          (GRHSs 
+           [
+            ({ LiftToToplevel/D1.hs:(13,15)-(15,16) }
+             Just (Ann (DP (0,-1)) [] [] [] Nothing Nothing)
+             (GRHS 
+              [] 
+              ({ LiftToToplevel/D1.hs:13:17-43 }
+               Just (Ann (DP (0,1)) [] [] [] Nothing Nothing)
+               (OpApp 
+                ({ LiftToToplevel/D1.hs:13:17-27 }
+                 Just (Ann (DP (0,0)) [] [] [] Nothing Nothing)
+                 (HsApp 
+                  ({ LiftToToplevel/D1.hs:13:17-25 }
+                   Just (Ann (DP (0,0)) [] [] [((G AnnOpenP),DP (0,0)),((G AnnCloseP),DP (0,0))] Nothing Nothing)
+                   (HsPar 
+                    ({ LiftToToplevel/D1.hs:13:18-24 }
+                     Just (Ann (DP (0,0)) [] [] [] Nothing Nothing)
+                     (HsApp 
+                      ({ LiftToToplevel/D1.hs:13:18-19 }
+                       Just (Ann (DP (0,0)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                       (HsVar 
+                        (Unqual {OccName: sq}))) 
+                      ({ LiftToToplevel/D1.hs:13:21-24 }
+                       Just (Ann (DP (0,1)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                       (HsVar 
+                        (Unqual {OccName: bar2}))))))) 
+                  ({ LiftToToplevel/D1.hs:13:27 }
+                   Just (Ann (DP (0,1)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                   (HsVar 
+                    (Unqual {OccName: x}))))) 
+                ({ LiftToToplevel/D1.hs:13:29 }
+                 Just (Ann (DP (0,1)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                 (HsVar 
+                  (Unqual {OccName: +}))) 
+                (PlaceHolder) 
+                ({ LiftToToplevel/D1.hs:13:31-43 }
+                 Just (Ann (DP (0,1)) [] [] [] Nothing Nothing)
+                 (HsApp 
+                  ({ LiftToToplevel/D1.hs:13:31-40 }
+                   Just (Ann (DP (0,0)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                   (HsVar 
+                    (Unqual {OccName: sumSquares}))) 
+                  ({ LiftToToplevel/D1.hs:13:42-43 }
+                   Just (Ann (DP (0,1)) [] [] [((G AnnVal),DP (0,0))] Nothing Nothing)
+                   (HsVar 
+                    (Unqual {OccName: xs})))))))))] 
+
+-}
 {-
 Required end result : (sq pow) x + sumSquares xs
 
@@ -1381,20 +1440,21 @@ rmDecl:: (SYB.Data t)
 
 rmDecl pn incSig t = do
   setStateStorage StorageNone
-  t' <- everywhereMStaged' SYB.Parser (SYB.mkM inModule
+  t' <- everywhereMStaged' SYB.Parser (SYB.mkM   inModule
                                       `SYB.extM` inLet
                                       `SYB.extM` inMatch
-                                      -- `SYB.extM` inPat
                                       ) t -- top down
          -- applyTP (once_tdTP (failTP `adhocTP` inBinds)) t
   -- t'  <- everywhereMStaged SYB.Renamer (SYB.mkM inBinds) t
-  (t'',sig') <- if incSig
-                  then rmTypeSig pn t'
-                  else return (t', Nothing)
+  -- logDataWithAnns "rmDecl:(t')" (t')
   storage <- getStateStorage
   let decl' = case storage of
                 StorageDeclRdr decl -> decl
                 x                   -> error $ "rmDecl: unexpected value in StateStorage:" ++ (show x)
+  setStateStorage StorageNone
+  (t'',sig') <- if incSig
+                  then rmTypeSig pn t'
+                  else return (t', Nothing)
   return (t'',decl',sig')
   where
     inModule (p :: GHC.ParsedSource)
@@ -1406,24 +1466,30 @@ rmDecl pn incSig t = do
     inLet :: GHC.LHsExpr GHC.RdrName -> RefactGhc (GHC.LHsExpr GHC.RdrName)
     inLet x@(GHC.L ss (GHC.HsLet localDecls expr))
       = do
-         nameMap <- getRefactNameMap
-         decls <- liftT $ hsDecls localDecls
-         let (decls1,decls2) = break (definesDeclRdr nameMap pn) decls
-         if not $ emptyList decls2
-            then do
-              let decl = ghead "rmDecl" decls2
-              setStateStorage (StorageDeclRdr decl)
-              case length decls of
-                1 -> do -- Removing the last declaration
-                 return expr
-                _ -> do
-                 logm $ "rmDecl.inLet:length decls /= 1"
-                 -- let decls2' = gtail "inLet" decls2
-                 decls' <- doRmDecl decls1 decls2
-                 localDecls' <- liftT $ replaceDecls localDecls decls'
-                 -- logDataWithAnns "inLet" (GHC.L ss (GHC.HsLet localDecls' expr))
-                 return $ (GHC.L ss (GHC.HsLet localDecls' expr))
-            else return x
+         isDone <- getDone
+         if isDone
+           then return x
+           else do
+             nameMap <- getRefactNameMap
+             decls <- liftT $ hsDecls localDecls
+             let (decls1,decls2) = break (definesDeclRdr nameMap pn) decls
+             if not $ emptyList decls2
+                then do
+                  let decl = ghead "rmDecl" decls2
+                  setStateStorage (StorageDeclRdr decl)
+                  case length decls of
+                    1 -> do -- Removing the last declaration
+                     return expr
+                    _ -> do
+                     -- logm $ "rmDecl.inLet:length decls /= 1"
+                     -- let decls2' = gtail "inLet" decls2
+                     decls' <- doRmDecl decls1 decls2
+                     localDecls' <- liftT $ replaceDecls localDecls decls'
+                     -- logDataWithAnns "inLet" (GHC.L ss (GHC.HsLet localDecls' expr))
+                     return $ (GHC.L ss (GHC.HsLet localDecls' expr))
+                else do
+                  -- liftT $ replaceDecls localDecls decls
+                  return x
     inLet x = return x
 
     -- ---------------------------------
@@ -1439,29 +1505,48 @@ rmDecl pn incSig t = do
              let (decls1,decls2) = break (definesDeclRdr nameMap pn) decls
              if not $ emptyList decls2
                then do
+                 -- logDataWithAnns "doRmDeclList:(parent)" (parent)
                  let decl = ghead "doRmDeclList" decls2
                  setStateStorage (StorageDeclRdr decl)
                  decls'  <- doRmDecl decls1 decls2
                  parent' <- liftT $ replaceDecls parent decls'
+                 -- logDataWithAnns "doRmDeclList:(parent')" (parent')
                  return parent'
-               else return parent
+               else do
+                 -- liftT $ replaceDecls parent decls
+                 return parent
 
     -- ---------------------------------
-
-    doRmDecl decls1 decls2
-      = do
-          let decls2'      = gtail "doRmDecl 1" decls2
-              declToRemove = head decls2
-          -- unless (null decls2') $ do modifyRefactAnns (\anns -> transferEntryDP anns declToRemove (head decls2') )
-          unless (null decls1)  $ do liftT $ balanceComments (last decls1) declToRemove
-          unless (null decls2') $ do liftT $ balanceComments declToRemove  (head decls2')
-          return $ (decls1 ++ decls2')
 
     getDone = do
       s <- getStateStorage
       case s of
         StorageNone -> return False
         _           -> return True
+
+-- ---------------------------------------------------------------------
+
+-- |Utility function to remove a decl from the middle of a list, assuming the
+-- list has already been split into a (possibly empty) front before the decl,
+-- and a back where the head is the decl to be removed.
+doRmDecl :: [GHC.LHsDecl GHC.RdrName] -> [GHC.LHsDecl GHC.RdrName] -> RefactGhc [GHC.LHsDecl GHC.RdrName]
+doRmDecl decls1 decls2
+  = do
+      let decls2'      = gtail "doRmDecl 1" decls2
+          declToRemove = head decls2
+
+      -- logDataWithAnns "doRmDecl:(decls1,decls2)" (decls1,decls2)
+      unless (null decls1)  $ do liftT $ balanceComments (last decls1) declToRemove
+      unless (null decls2') $ do liftT $ balanceComments declToRemove  (head decls2')
+
+      -- decl in the middle of a list
+      when   (not (null decls1) && not (null decls2')) $ do liftT $ transferEntryDPT (last decls1) (head decls2')
+
+      -- Removing first decl
+      when (null decls1 && not (null decls2')) $ do liftT $ transferEntryDPT declToRemove (head decls2')
+
+      -- logDataWithAnns "doRmDecl:(decls2')" (decls2')
+      return $ (decls1 ++ decls2')
 
 -- ---------------------------------------------------------------------
 
@@ -1490,7 +1575,7 @@ rmTypeSig :: (SYB.Data t) =>
 rmTypeSig pn t
   = do
      setStateStorage StorageNone
-     t' <- SYB.everywhereMStaged SYB.Renamer (SYB.mkM inGRHSs `SYB.extM` inModule) t
+     t' <- SYB.everywhereMStaged SYB.Renamer (SYB.mkM inMatch `SYB.extM` inPatDecl `SYB.extM` inModule) t
      storage <- getStateStorage
      let sig' = case storage of
                   StorageSigRdr sig -> Just sig
@@ -1502,25 +1587,36 @@ rmTypeSig pn t
    inModule (modu :: GHC.ParsedSource)
       = doRmTypeSig modu
 
-   inGRHSs x@((GHC.GRHSs _a _localDecls) :: GHC.GRHSs GHC.RdrName (GHC.LHsExpr GHC.RdrName))
+   -- Deals with the distrinct parts of a FunBind
+   inMatch :: GHC.LMatch GHC.RdrName (GHC.LHsExpr GHC.RdrName) -> RefactGhc (GHC.LMatch GHC.RdrName (GHC.LHsExpr GHC.RdrName))
+   inMatch x@(GHC.L _ (GHC.Match _ _ _ (GHC.GRHSs _ _localDecls)))
       = doRmTypeSig x
+
+   inPatDecl ::GHC.LHsDecl GHC.RdrName -> RefactGhc (GHC.LHsDecl GHC.RdrName)
+   inPatDecl x@(GHC.L _ (GHC.ValD (GHC.PatBind _ _ _ _ _)))
+      = doRmTypeSig x
+   inPatDecl x = return x
+
+   -- inPatBind ::GHC.LHsBind GHC.RdrName -> RefactGhc (GHC.LHsBind GHC.RdrName)
+   -- inPatBind x@(GHC.L _ (GHC.PatBind _ _ _ _ _))
+   --    = doRmTypeSig x
+   -- inPatBind x = return x
 
    -- ----------------------------------
 
    doRmTypeSig :: (HasDecls t) => t -> RefactGhc t
    doRmTypeSig parent = do
-     -- This has to happen regardless, else the layout does not propagate properly.
-     -- ++AZ++ TODO: Investigate why
-     decls <- liftT $ hsDecls parent
      isDone <- getDone
      if isDone
        then return parent
        else do
-         -- decls <- liftT $ hsDecls parent
+         decls <- liftT $ hsDecls parent
+         -- logDataWithAnns "doRmTypeSig:decls" decls
          nameMap <- getRefactNameMap
          let (decls1,decls2)= break (definesSigDRdr nameMap pn) decls
          if not $ null decls2
             then do
+              -- logDataWithAnns "doRmTypeSig:parent" parent
               let sig@(GHC.L sspan (GHC.SigD (GHC.TypeSig names typ p))) = ghead "rmTypeSig" decls2
               if length names > 1
                   then do
@@ -1539,13 +1635,19 @@ rmTypeSig pn t
                   else do
                       [oldSig] <- liftT $ decl2SigT sig
                       setStateStorage (StorageSigRdr oldSig)
+                      {-
                       unless (null $ tail decls2) $ do
-                        modifyRefactAnns (\anns -> transferEntryDP anns sig (head $ tail decls2) )
+                        liftT $ transferEntryDPT sig (head $ tail decls2)
                         unless (null decls1) $ do liftT $ balanceComments (last decls1) sig
                         liftT $ balanceComments (head decls2) (head $ tail decls2)
-                      parent' <- liftT $ replaceDecls parent (decls1++tail decls2)
+                      -}
+                      decls' <- doRmDecl decls1 decls2
+                      parent' <- liftT $ replaceDecls parent decls'
+                      -- parent' <- liftT $ replaceDecls parent (decls1++tail decls2)
                       return parent'
-            else return parent
+            else do
+              -- liftT $ replaceDecls parent decls
+              return parent
 
    getDone = do
      s <- getStateStorage
@@ -1900,11 +2002,11 @@ renamePN' oldPN newName useQual t = do
                   `SYB.extM` (renameImportDecl useQual')
                   `SYB.extM` (renameFunBind useQual')
                    ) t')
-  ans <- getRefactAnns
-  let (t',(ans',_),logOut) = runTransform ans (renameTransform useQual t)
-
-  logm $ "renamePN':transform:\n" ++ unlines logOut
-  setRefactAnns ans'
+  -- ans <- getRefactAnns
+  -- let (t',(ans',_),logOut) = runTransform ans (renameTransform useQual t)
+  -- logm $ "renamePN':transform:\n" ++ unlines logOut
+  -- setRefactAnns ans'
+  t' <- liftT (renameTransform useQual t)
   return t'
 
 -- ---------------------------------------------------------------------

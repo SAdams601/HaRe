@@ -35,7 +35,7 @@ comp fileName beginPos endPos = do
   error "Update this to work with exactprint"
   {-       getModuleGhc fileName
        parsed <- getRefactParsed
-       oldAnns <- getRefactAnns
+       oldAnns <- liftT getAnnsT
        logm $ "Case.comp:parsed=" ++ (showAnnData oldAnns 0 parsed) -- ++AZ++
        let expr = locToExp beginPos endPos parsed
        case expr of

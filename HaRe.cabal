@@ -54,7 +54,7 @@ Library
                                 , ghc-paths
                                 , ghc-prim  
                                 , ghc-syb-utils
-                                , ghc-mod == 0
+                                , ghc-mod >= 5.3
                                 , mtl
                                 , old-time
                                 , pretty
@@ -111,6 +111,26 @@ Executable ghc-hare
         -- GHC-Options:            -prof -fprof-auto -rtsopts -caf-all
         Hs-Source-Dirs:
           ./src
+        other-modules:
+             Language.Haskell.Refact.API
+           , Language.Haskell.Refact.HaRe
+           , Language.Haskell.Refact.Refactoring.Case
+           , Language.Haskell.Refact.Refactoring.RoundTrip
+           , Language.Haskell.Refact.Utils.Binds
+           , Language.Haskell.Refact.Utils.ExactPrint
+           , Language.Haskell.Refact.Utils.GhcModuleGraph
+           , Language.Haskell.Refact.Utils.GhcUtils
+           , Language.Haskell.Refact.Utils.GhcVersionSpecific
+           , Language.Haskell.Refact.Utils.LocUtils
+           , Language.Haskell.Refact.Utils.Monad
+           , Language.Haskell.Refact.Utils.MonadFunctions
+           , Language.Haskell.Refact.Utils.TypeSyn
+           , Language.Haskell.Refact.Utils.TypeUtils
+           , Language.Haskell.Refact.Utils.Types
+           , Language.Haskell.Refact.Utils.Utils
+           , Language.Haskell.Refact.Utils.Variables
+           , Paths_HaRe
+
         Build-Depends:          base >= 4.0  && < 4.9
                                 , array
                                 , containers
@@ -126,7 +146,7 @@ Executable ghc-hare
                                 , ghc-paths
                                 , ghc-prim
                                 , ghc-syb-utils
-                                , ghc-mod == 0
+                                , ghc-mod >= 5.3
                                 , mtl
                                 , old-time
                                 , parsec >= 3.1.6
@@ -165,6 +185,20 @@ test-suite spec
   Hs-Source-Dirs:
     -- src
     test
+  other-modules:
+      CaseSpec
+    , DupDefSpec
+    , GhcUtilsSpec
+    , LocUtilsSpec
+    , MonadFunctionsSpec
+    , MoveDefSpec
+    , RenamingSpec
+    , RoundTripSpec
+    , SimpleSpec
+    , SwapArgsSpec
+    , TestUtils
+    , TypeUtilsSpec
+    , UtilsSpec
   build-depends:
       base        >= 4.0  && < 4.9
     , Diff >= 0.3.0
@@ -184,7 +218,7 @@ test-suite spec
     , ghc-paths
     , ghc-prim
     , ghc-syb-utils
-    , ghc-mod == 0
+    , ghc-mod >= 5.3
     , hspec
     , mtl
     , old-time

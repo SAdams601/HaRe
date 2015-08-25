@@ -29,10 +29,8 @@ module Language.Haskell.Refact.Utils.MonadFunctions
        , putRefactParsed
 
        -- * Annotations
-       , modifyRefactAnns
-       , addRefactAnns
+       -- , addRefactAnns
        , setRefactAnns
-       , getRefactAnns
 
        -- *
        , putParsedModule
@@ -68,6 +66,7 @@ module Language.Haskell.Refact.Utils.MonadFunctions
        , fileNameFromModSummary
 
        , logDataWithAnns
+       , logAnns
        , logParsedSource
 
        -- * For use by the tests only
@@ -180,28 +179,35 @@ putRefactParsed parsed newAnns = do
   let rm = gfromJust "putRefactParsed" mrm
   let tm = rsTypecheckedMod rm
   -- let tk' = modifyAnns (rsTokenCache rm) (const newAnns)
-  let tk' = modifyAnns (rsTokenCache rm) (unionAnns newAnns)
+  let tk' = modifyAnns (rsTokenCache rm) (mergeAnns newAnns)
 
   let pm = (GHC.tm_parsed_module tm) { GHC.pm_parsed_source = parsed }
   let tm' = tm { GHC.tm_parsed_module = pm }
   let rm' = rm { rsTypecheckedMod = tm', rsTokenCache = tk', rsStreamModified = RefacModified }
   put $ st {rsModule = Just rm'}
 
+-- ---------------------------------------------------------------------
+-- addRefactAnns :: Anns -> RefactGhc ()
+-- addRefactAnns newAnns = liftT $ modifyAnnsT (mergeAnns newAnns)
+
+-- | Combine the new with old, such that the new take priority
+-- unionAnns :: Anns -> Anns -> Anns
+-- unionAnns = mergeAnns
+
+-- |Internal low level interface to access the current annotations from the
+-- RefactGhc state.
 getRefactAnns :: RefactGhc Anns
 getRefactAnns =
   (Map.! mainTid) . tkCache . rsTokenCache . gfromJust "getRefactAnns"
     <$> gets rsModule
 
+-- |Internal low level interface to access the current annotations from the
+-- RefactGhc state.
 setRefactAnns :: Anns -> RefactGhc ()
 setRefactAnns anns = modifyRefactAnns (const anns)
 
-addRefactAnns :: Anns -> RefactGhc ()
-addRefactAnns newAnns = modifyRefactAnns (unionAnns newAnns)
-
--- | Combine the new with old, such that the new take priority
-unionAnns :: Anns -> Anns -> Anns
-unionAnns = mergeAnns
-
+-- |Internal low level interface to access the current annotations from the
+-- RefactGhc state.
 modifyRefactAnns :: (Anns -> Anns) -> RefactGhc ()
 modifyRefactAnns f = do
   st <- get
@@ -211,7 +217,8 @@ modifyRefactAnns f = do
   let rm' = rm { rsTokenCache = tk', rsStreamModified = RefacModified }
   put $ st {rsModule = Just rm'}
 
-
+-- |Internal low level interface to access the current annotations from the
+-- RefactGhc state.
 modifyAnns :: TokenCache Anns -> (Anns -> Anns) -> TokenCache Anns
 modifyAnns tk f = tk'
   where
@@ -219,6 +226,8 @@ modifyAnns tk f = tk'
     tk' = tk {tkCache = Map.insert mainTid
                                    (f anns)
                                    (tkCache tk) }
+
+-- ----------------------------------------------------------------------
 
 putParsedModule
   :: GHC.TypecheckedModule -> RefactGhc ()
@@ -280,7 +289,7 @@ replaceRdrName (GHC.L l newName) = do
 
 refactReplaceDecls :: (HasDecls a) => a -> [GHC.LHsDecl GHC.RdrName] -> RefactGhc a
 refactReplaceDecls t decls = do
-  refactRunTransform (replaceDecls t decls)
+  liftT (replaceDecls t decls)
 
 -- |Run a transformation in the ghc-exactprint Transform monad, updating the
 -- current annotations and unique SrcSpan value.
@@ -403,6 +412,13 @@ logDataWithAnns str ast = do
 
 -- ---------------------------------------------------------------------
 
+logAnns :: String -> RefactGhc ()
+logAnns str = do
+  anns <- getRefactAnns
+  logm $ str ++ showGhc anns
+
+-- ---------------------------------------------------------------------
+
 logParsedSource :: String -> RefactGhc ()
 logParsedSource str = do
   parsed <- getRefactParsed
@@ -432,20 +448,21 @@ initRdrNameMap tm = r
     renamed = gfromJust "initRdrNameMap" $ GHC.tm_renamed_source tm
 
     checkRdr :: GHC.Located GHC.RdrName -> Maybe [GHC.SrcSpan]
-    checkRdr (GHC.L l _)= Just [l]
+    checkRdr (GHC.L l (GHC.Unqual _)) = Just [l]
+    checkRdr (GHC.L l (GHC.Qual _ _)) = Just [l]
+    checkRdr (GHC.L _ _)= Nothing
 
     checkName :: GHC.Located GHC.Name -> Maybe [GHC.Located GHC.Name]
     checkName ln = Just [ln]
 
-    rdrNames = gfromJust "initRdrNameMap" $ SYB.everything mappend (nameSybQuery checkRdr) parsed
-    -- rdrNames = SYB.listify isLocatedRdrName parsed
-    -- names    = SYB.listify isLocatedName    renamed
-    names = gfromJust "initRdrNameMap" $ SYB.everything mappend (nameSybQuery checkName) renamed
+    rdrNames = gfromJust "initRdrNameMap" $ SYB.everything mappend (nameSybQuery checkRdr ) parsed
+    names    = gfromJust "initRdrNameMap" $ SYB.everything mappend (nameSybQuery checkName) renamed
 
     nameMap = Map.fromList $ map (\(GHC.L l n) -> (l,n)) names
 
     r1 = Map.fromList $ map (\l -> (l,Map.lookup l nameMap)) rdrNames
-    r = Map.map (fromMaybe (error "initRdrNameMap:no val")) r1
+    -- r = Map.map (fromMaybe (error "initRdrNameMap:no val")) r1
+    r = Map.mapWithKey (\k v -> fromMaybe (error $ "initRdrNameMap:no val for:" ++ showGhc k) v) r1
 
 -- ---------------------------------------------------------------------
 
@@ -496,7 +513,8 @@ parseDeclWithAnns src = do
   case r of
     Left err -> error (show err)
     Right (anns,decl) -> do
-      addRefactAnns anns
+      -- addRefactAnns anns
+      liftT $ modifyAnnsT (mergeAnns anns)
       return decl
 
 -- EOF

@@ -54,9 +54,8 @@ spec = do
     -- ---------------------------------
 
     it "liftToTopLevel D1 C1 A1 8 6" $ do
-     -- r <- ct $ liftToTopLevel (testSettingsMainfile "./test/testdata/LiftToToplevel/A1.hs") testOptions "./LiftToToplevel/D1.hs" (8,6)
-     -- r <- ct $ liftToTopLevel defaultTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
-     r <- ct $ liftToTopLevel logTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
+     r <- ct $ liftToTopLevel defaultTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
+     -- r <- ct $ liftToTopLevel logTestSettings testOptions "./LiftToToplevel/D1.hs" (8,6)
      r' <- ct $ mapM makeRelativeToCurrentDirectory r
      (show r') `shouldBe` "[\"./LiftToToplevel/D1.hs\",\"LiftToToplevel/C1.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/D1.hs.expected"
@@ -74,9 +73,9 @@ spec = do
     -- ---------------------------------
 
     it "liftToTopLevel D2 C2 A2 8 6" $ do
-     r <- liftToTopLevel (testSettingsMainfile "./test/testdata/LiftToToplevel/A2.hs") testOptions "./test/testdata/LiftToToplevel/D2.hs" (8,6)
-     -- r <- liftToTopLevel (logTestSettingsMainfile "./test/testdata/LiftToToplevel/A2.hs") testOptions "./test/testdata/LiftToToplevel/D2.hs" (8,6)
-     (show r) `shouldBe` "[\"./test/testdata/LiftToToplevel/D2.hs\",\"./test/testdata/LiftToToplevel/C2.hs\"]"
+     r <- ct $ liftToTopLevel defaultTestSettings testOptions "./LiftToToplevel/D2.hs" (8,6)
+     r' <- ct $ mapM makeRelativeToCurrentDirectory r
+     (show r') `shouldBe` "[\"./LiftToToplevel/D2.hs\",\"LiftToToplevel/C2.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/D2.hs.expected"
                           "./test/testdata/LiftToToplevel/D2.refactored.hs"
      diff `shouldBe` []
@@ -92,9 +91,9 @@ spec = do
     -- ---------------------------------
 
     it "liftToTopLevel D3 C3 A3 8 6" $ do
-     r <- liftToTopLevel (testSettingsMainfile "./test/testdata/LiftToToplevel/A3.hs") testOptions "./test/testdata/LiftToToplevel/D3.hs" (8,6)
-     -- r <- liftToTopLevel logTestSettings  testOptions    (Just "./test/testdata/LiftToToplevel/A3.hs") "./test/testdata/LiftToToplevel/D3.hs" (8,6)
-     (show r) `shouldBe` "[\"./test/testdata/LiftToToplevel/D3.hs\"]"
+     r <- liftToTopLevel defaultTestSettings testOptions "./test/testdata/LiftToToplevel/D3.hs" (8,6)
+     r' <- ct $ mapM makeRelativeToCurrentDirectory r
+     (show r') `shouldBe` "[\"./test/testdata/LiftToToplevel/D3.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/D3.hs.expected"
                           "./test/testdata/LiftToToplevel/D3.refactored.hs"
      diff `shouldBe` []
@@ -132,7 +131,7 @@ spec = do
 
     it "liftToTopLevel WhereIn7 12 14" $ do
      r <- liftToTopLevel defaultTestSettings testOptions "./test/testdata/LiftToToplevel/WhereIn7.hs" (12,14)
-     -- r <- liftToTopLevel logTestSettings  testOptions    Nothing "./test/testdata/LiftToToplevel/WhereIn7.hs" (12,14)
+     -- r <- liftToTopLevel logTestSettings testOptions "./test/testdata/LiftToToplevel/WhereIn7.hs" (12,14)
      (show r) `shouldBe` "[\"./test/testdata/LiftToToplevel/WhereIn7.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/WhereIn7.hs.expected"
                           "./test/testdata/LiftToToplevel/WhereIn7.refactored.hs"
@@ -259,7 +258,6 @@ negative=[(["PatBindIn2.hs"],["17","7"]),
     it "liftToTopLevel LiftInLambda 10 5" $ do
      r <- liftToTopLevel defaultTestSettings testOptions "./test/testdata/LiftToToplevel/LiftInLambda.hs" (10,5)
      -- r <- liftToTopLevel logTestSettings  testOptions "./test/testdata/LiftToToplevel/LiftInLambda.hs" (10,5)
-     -- r <- liftToTopLevel logTestSettings  testOptions "./src/Language/Haskell/Refact/MoveDef.hs" (1111,11)
      (show r) `shouldBe` "[\"./test/testdata/LiftToToplevel/LiftInLambda.hs\"]"
      diff <- compareFiles "./test/testdata/LiftToToplevel/LiftInLambda.expected.hs"
                           "./test/testdata/LiftToToplevel/LiftInLambda.refactored.hs"
@@ -349,8 +347,8 @@ negative=[(["PatBindIn2.hs"],["17","7"]),
   describe "LiftOneLevel" $ do
 
     it "liftOneLevel.liftToMod D1 C1 A1 8 6" $ do
-     r <- liftOneLevel (testSettingsMainfile "./test/testdata/LiftOneLevel/A1.hs") testOptions "./test/testdata/LiftOneLevel/D1.hs" (8,6)
-     -- liftOneLevel (logTestSettingsMainfile "./test/testdata/LiftOneLevel/A1.hs") testOptions  "./test/testdata/LiftOneLevel/D1.hs" (8,6)
+     r <- liftOneLevel defaultTestSettings testOptions "./test/testdata/LiftOneLevel/D1.hs" (8,6)
+     -- r <- liftOneLevel logTestSettings testOptions "./test/testdata/LiftOneLevel/D1.hs" (8,6)
      (show r) `shouldBe` "[\"./test/testdata/LiftOneLevel/D1.hs\",\"./test/testdata/LiftOneLevel/C1.hs\"]"
      diff <- compareFiles "./test/testdata/LiftOneLevel/D1.hs.expected"
                           "./test/testdata/LiftOneLevel/D1.refactored.hs"

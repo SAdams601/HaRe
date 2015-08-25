@@ -13,6 +13,7 @@ module TestUtils
        , initialLogOnState
        , showAnnDataFromState
        , showAnnDataItemFromState
+       , showAnnsFromState
        , exactPrintFromState
        , sourceFromState
        , annsFromState
@@ -33,11 +34,11 @@ module TestUtils
        , pwd
        , cd
        , parseToAnnotated
+       , parseDeclToAnnotated
        , ss2span
        ) where
 
 
--- import qualified DynFlags      as GHC
 import qualified FastString    as GHC
 import qualified GHC           as GHC
 import qualified Name          as GHC
@@ -50,9 +51,10 @@ import Data.Data
 import Exception
 import Language.Haskell.GHC.ExactPrint
 import Language.Haskell.GHC.ExactPrint.Annotate
+import Language.Haskell.GHC.ExactPrint.Parsers
 import Language.Haskell.GHC.ExactPrint.Types
 import Language.Haskell.GHC.ExactPrint.Utils
-import qualified Language.Haskell.GhcMod          as GM (Options(..),defaultOptions,Cradle(..),logLevel)
+import qualified Language.Haskell.GhcMod          as GM (Options(..),defaultOptions,Cradle(..),ProjectType(..),logLevel)
 import qualified Language.Haskell.GhcMod.Internal as GM (GmLogLevel(..))
 import Language.Haskell.Refact.Utils.GhcBugWorkArounds
 import Language.Haskell.Refact.Utils.Monad
@@ -242,8 +244,24 @@ testOptions = GM.defaultOptions { GM.logLevel = GM.GmError }
 -- ---------------------------------------------------------------------
 
 testCradle :: GM.Cradle
-testCradle = GM.Cradle "./test/testdata/" "./test/testdata/" "/tmp" Nothing
-
+testCradle = GM.Cradle GM.CabalProject "./test/testdata/" "./test/testdata/" "/tmp" Nothing "./dist"
+-- testCradle = GM.Cradle GM.CabalProject "./test/testdata/" "./test/testdata/" "/tmp" Nothing
+{-
+-- | The environment where this library is used.
+data Cradle = Cradle {
+    cradleProjectType:: ProjectType
+  -- | The directory where this library is executed.
+  , cradleCurrentDir :: FilePath
+  -- | The project root directory.
+  , cradleRootDir    :: FilePath
+  -- | Per-Project temporary directory
+  , cradleTempDir    :: FilePath
+  -- | The file name of the found cabal file.
+  , cradleCabalFile  :: Maybe FilePath
+  -- | The build info directory.
+  , cradleDistDir    :: FilePath
+  } deriving (Eq, Show)
+-}
 -- ---------------------------------------------------------------------
 
 defaultTestSettings :: RefactSettings
@@ -299,6 +317,17 @@ showAnnDataItemFromState st t =
 
 -- ---------------------------------------------------------------------
 
+showAnnsFromState :: RefactState -> String
+showAnnsFromState st =
+  case rsModule st of
+    Just tm -> r
+      where
+        anns = tkCache (rsTokenCache tm) Map.! mainTid
+        r = showGhc anns
+    Nothing -> []
+
+-- ---------------------------------------------------------------------
+
 exactPrintFromState :: (Annotate a) => RefactState -> GHC.Located a -> String
 exactPrintFromState st ast =
   case rsModule st of
@@ -308,7 +337,7 @@ exactPrintFromState st ast =
         anns = case Map.lookup mainTid (tkCache (rsTokenCache tm)) of
           Just a -> a
           Nothing -> error $ "exactPrintFromState:mainTid not found"
-        r = exactPrintWithAnns ast anns
+        r = exactPrint ast anns
     Nothing -> []
 
 -- ---------------------------------------------------------------------
@@ -321,7 +350,7 @@ sourceFromState st =
         anns = tkCache (rsTokenCache tm) Map.! mainTid
         parsed = GHC.pm_parsed_source $ GHC.tm_parsed_module
                  $ rsTypecheckedMod tm
-        r = exactPrintWithAnns parsed anns
+        r = exactPrint parsed anns
     Nothing -> []
 
 -- ---------------------------------------------------------------------
@@ -376,12 +405,25 @@ parseToAnnotated :: (Show a, Annotate ast)
                  => GHC.DynFlags
                  -> FilePath
                  -> (GHC.DynFlags -> FilePath -> String -> Either a (Anns, GHC.Located ast))
-                 -- -> Parser
                  -> String
                  -> (GHC.Located ast, Anns)
 parseToAnnotated df fp parser src = (ast,anns)
   where
     (anns, ast) = case (parser df fp src) of
+                            Right xs -> xs
+                            Left err -> error (show err)
+
+-- ---------------------------------------------------------------------
+
+parseDeclToAnnotated ::
+                    GHC.DynFlags
+                 -> FilePath
+                 -- -> (GHC.DynFlags -> FilePath -> String -> Either a (Anns, GHC.Located ast))
+                 -> String
+                 -> (GHC.LHsDecl GHC.RdrName, Anns)
+parseDeclToAnnotated df fp src = (ast,anns)
+  where
+    (anns, ast) = case (parseDecl df fp src) of
                             Right xs -> xs
                             Left err -> error (show err)
 

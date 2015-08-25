@@ -78,6 +78,7 @@ import qualified GHC           as GHC
 import qualified Name          as GHC
 import qualified NameSet       as GHC
 import qualified Outputable    as GHC
+import qualified RdrName       as GHC
 import qualified UniqSet       as GHC
 
 import qualified Data.Generics as SYB
@@ -1324,20 +1325,24 @@ definingDeclsRdrNames::
             ->Bool       -- ^ True means to look at the local declarations as well.
             ->[GHC.LHsDecl GHC.RdrName]  -- ^ The result.
 definingDeclsRdrNames nameMap pns ds _incTypeSig recursive = concatMap defining ds
+-- ++AZ++:TODO: now we are processing decls again, reinstate incTypeSig function
   where
    defining decl
      = if recursive
-        then SYB.everythingStaged SYB.Parser (++) [] ([]  `SYB.mkQ` defines') decl
-        else defines' decl
+        then SYB.everythingStaged SYB.Parser (++) [] ([]  `SYB.mkQ` definesDecl `SYB.extQ` definesBind)  decl
+        else definesDecl decl
      where
-      defines' :: (GHC.LHsDecl GHC.RdrName) -> [GHC.LHsDecl GHC.RdrName]
-      defines' decl'@(GHC.L _ (GHC.ValD (GHC.FunBind _ _ _ _ _ _)))
+      definesDecl :: (GHC.LHsDecl GHC.RdrName) -> [GHC.LHsDecl GHC.RdrName]
+      definesDecl decl'@(GHC.L _ (GHC.ValD (GHC.FunBind _ _ _ _ _ _)))
         | any (\n -> definesDeclRdr nameMap n decl') pns = [decl']
 
-      defines' decl'@(GHC.L _l (GHC.ValD (GHC.PatBind _p _rhs _ty _fvs _)))
+      definesDecl decl'@(GHC.L _l (GHC.ValD (GHC.PatBind _p _rhs _ty _fvs _)))
         | any (\n -> definesDeclRdr nameMap n decl') pns = [decl']
 
-      defines' _ = []
+      definesDecl _ = []
+
+      definesBind :: (GHC.LHsBind GHC.RdrName) -> [GHC.LHsDecl GHC.RdrName]
+      definesBind (GHC.L l b) = definesDecl (GHC.L l (GHC.ValD b))
 
 -- ---------------------------------------------------------------------
 
@@ -2426,6 +2431,7 @@ rdrName2Name ln = do
   return (rdrName2NamePure nameMap ln)
 
 rdrName2NamePure :: NameMap -> GHC.Located GHC.RdrName -> GHC.Name
+rdrName2NamePure _nameMap (GHC.L _ (GHC.Exact n)) = n
 rdrName2NamePure nameMap (GHC.L lrn _) =
   fromMaybe (error $ "rdrName2NamePure: no name found for" ++ showGhc lrn)
              (Map.lookup lrn nameMap)
